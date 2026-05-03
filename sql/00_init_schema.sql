@@ -48,7 +48,6 @@ CREATE TABLE IF NOT EXISTS inventory_alerts (
 
     campaign_id               VARCHAR(100) NOT NULL,
     alert_type                VARCHAR(50) NOT NULL,
-    -- LOW_STOCK / OVERSELL / INVALID_EVENT / UNKNOWN_SKU
 
     sku_id                    VARCHAR(100),
     warehouse_id              VARCHAR(100),

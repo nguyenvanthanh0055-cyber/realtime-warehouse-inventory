@@ -39,7 +39,7 @@ services:
       POSTGRES_PASSWORD: inventory_password
     volumes:
       - inventory_postgres_data:/var/lib/postgresql/data
-      - ./db/postgres:/docker-entrypoint-initdb.d
+      - ./sql/:/docker-entrypoint-initdb.d
 
 volumes:
   inventory_postgres_data:

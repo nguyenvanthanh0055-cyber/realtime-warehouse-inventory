@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+data/lake/
+logs/
+*.log
+
+.ipynb_checkpoints/
+.DS_Store
+
+.pytest_cache/
+
+sql_phase9.sql
+data/checkpoints/

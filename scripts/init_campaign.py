@@ -227,7 +227,7 @@ def seed_promotion_metrics(
             sku_id,
             warehouse_id,
             promotion_quota,
-            promotion_sold_qty,
+            promotion_consumed_qty,
             promotion_cancelled_qty,
             deal_sold_out_at,
             updated_at
@@ -246,7 +246,7 @@ def seed_promotion_metrics(
         ON CONFLICT (campaign_id, promotion_id, sku_id, warehouse_id)
         DO UPDATE SET
             promotion_quota = EXCLUDED.promotion_quota,
-            promotion_sold_qty = 0,
+            promotion_consumed_qty = 0,
             promotion_cancelled_qty = 0,
             deal_sold_out_at = NULL,
             updated_at = NOW()

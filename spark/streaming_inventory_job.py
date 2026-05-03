@@ -5,6 +5,7 @@ from pyspark.sql.functions import col, from_json
 
 from common.schemas import inventory_event_schema
 from common.transformations import transform_inventory_events
+from spark.sinks.postgres_current_state_sink import write_batch_to_postgres
 
 
 def create_spark_session(app_name: str) -> SparkSession:
@@ -59,17 +60,15 @@ def parse_kafka_events(kafka_df):
 
 
 
-def write_to_console(df):
-    return (
+def write_to_postgres(df, checkpoint_location: str):
+    return(
         df.writeStream
-        .format("console")
-        .option("truncate", "false")
-        .option("numRows", 20)
-        .outputMode("append")
+        .foreachBatch(write_batch_to_postgres)
+        .outputMode("update")
+        .option("checkPointLocation", checkpoint_location)
+        .trigger(processingTime="5 seconds")
         .start()
     )
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Spark Structured Streaming job for inventory events"
@@ -112,19 +111,24 @@ def main():
         "sku_id",
         "warehouse_id",
         "quantity",
-        "movement_qty",
-        "payment_method",
-        "payment_status",
+        "unit_price",
         "promotion_id",
         "promotion_applied",
+        "payment_method",
+        "payment_status",
+        "reservation_expires_at",
+        "source",
+        "movement_qty",
         "is_valid_event",
         "invalid_reason",
         "kafka_key",
         "partition",
-        "offset",
-    )
+        "offset"
+)
 
-    query = write_to_console(output_df)
+    query = write_to_postgres(
+        df=output_df,
+        checkpoint_location="data/checkpoints/postgres_current_state")
 
     query.awaitTermination()
 
