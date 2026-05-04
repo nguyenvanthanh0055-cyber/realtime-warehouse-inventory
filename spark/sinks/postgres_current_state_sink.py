@@ -52,8 +52,8 @@ def insert_inventory_alert(
     message: str
 ) -> None:
     sql = """
-    INSERT INTO (
-        campaign_id
+    INSERT INTO inventory_alerts (
+        campaign_id,
         alert_type,
         sku_id,
         warehouse_id,
@@ -119,7 +119,7 @@ def update_current_inventory(cursor, event: Dict[str, Any]) -> None:
     movement_qty = event["movement_qty"] or 0
     new_stock = old_stock + movement_qty
 
-    new_status = get_inventory_status(old_stock, low_stock_threshold)
+    new_status = get_inventory_status(new_stock, low_stock_threshold)
 
     update_sql = """
     UPDATE current_inventory
@@ -134,7 +134,7 @@ def update_current_inventory(cursor, event: Dict[str, Any]) -> None:
     AND warehouse_id = %(warehouse_id)s
     """
 
-    cursor.execute(sql,
+    cursor.execute(update_sql,
                    {
                        "new_stock": new_stock,
                        "new_status": new_status,
