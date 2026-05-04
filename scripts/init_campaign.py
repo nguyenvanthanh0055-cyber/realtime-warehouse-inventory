@@ -166,6 +166,7 @@ def seed_current_inventory(
             sku_id,
             warehouse_id,
             product_name,
+            initial_sellable_stock,
             current_sellable_stock,
             low_stock_threshold,
             status,
@@ -178,6 +179,7 @@ def seed_current_inventory(
             :sku_id,
             :warehouse_id,
             :product_name,
+            :initial_sellable_stock,
             :current_sellable_stock,
             :low_stock_threshold,
             :status,
@@ -188,6 +190,7 @@ def seed_current_inventory(
         ON CONFLICT (campaign_id, sku_id, warehouse_id)
         DO UPDATE SET
             product_name = EXCLUDED.product_name,
+            initial_sellable_stock = EXCLUDED.initial_sellable_stock,
             current_sellable_stock = EXCLUDED.current_sellable_stock,
             low_stock_threshold = EXCLUDED.low_stock_threshold,
             status = EXCLUDED.status,
@@ -199,7 +202,8 @@ def seed_current_inventory(
     rows = []
 
     for _, row in inventory_df.iterrows():
-        current_sellable_stock = int(row["initial_sellable_stock"])
+        initial_sellable_stock = int(row["initial_sellable_stock"])
+        current_sellable_stock = initial_sellable_stock
         low_stock_threshold = int(row["low_stock_threshold"])
 
         rows.append({
@@ -207,6 +211,7 @@ def seed_current_inventory(
             "sku_id": row["sku_id"],
             "warehouse_id": row["warehouse_id"],
             "product_name": row["product_name"],
+            "initial_sellable_stock": initial_sellable_stock,
             "current_sellable_stock": current_sellable_stock,
             "low_stock_threshold": low_stock_threshold,
             "status": calculate_status(current_sellable_stock, low_stock_threshold),

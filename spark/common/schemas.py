@@ -12,7 +12,7 @@ inventory_event_schema = StructType([
     StructField("campaign_id", StringType(), False),
     StructField("event_time", StringType(), False),
     StructField("event_type", StringType(), False),
-    StructField("order_id", IntegerType(), True),
+    StructField("order_id", StringType(), True),
     StructField("sku_id", StringType(), False),
     StructField("warehouse_id", StringType(), False),
     StructField("quantity", IntegerType(), False),
