@@ -6,7 +6,11 @@ from pyspark.sql.functions import col, from_json
 from common.schemas import inventory_event_schema
 from common.transformations import transform_inventory_events
 from spark.sinks.postgres_current_state_sink import write_batch_to_postgres
-
+from spark.sinks.lake_sink import (
+    write_bronze_raw_inventory_events,
+    write_silver_inventory_movements,
+    write_silver_invalid_events,
+)
 
 def create_spark_session(app_name: str) -> SparkSession:
     return (
@@ -37,7 +41,7 @@ def parse_kafka_events(kafka_df):
         col("topic"),
         col("partition"),
         col("offset"),
-        col("timestamp").alias("kafka_timestamp")
+        col("timestamp")
     )
     parsed_df = kafka_values_df.select(
         col("kafka_key"),
@@ -45,15 +49,16 @@ def parse_kafka_events(kafka_df):
         col("topic"),
         col("partition"),
         col("offset"),
-        col("kafka_timestamp"),
+        col("timestamp"),
         from_json(col("json_value"), inventory_event_schema).alias("event")
     )
     event_df = parsed_df.select(
         "kafka_key",
+        "json_value",
         "topic",
         "partition",
         "offset",
-        "kafka_timestamp",
+        "timestamp",
         col("event.*")
     )
     return event_df
@@ -103,34 +108,44 @@ def main():
     transformed_df = transform_inventory_events(event_df)
 
     output_df = transformed_df.select(
-        "event_id",
-        "campaign_id",
-        "event_timestamp",
-        "event_type",
-        "order_id",
-        "sku_id",
-        "warehouse_id",
-        "quantity",
-        "unit_price",
-        "promotion_id",
-        "promotion_applied",
-        "payment_method",
-        "payment_status",
-        "reservation_expires_at",
-        "source",
-        "movement_qty",
-        "is_valid_event",
-        "invalid_reason",
-        "kafka_key",
-        "partition",
-        "offset"
+    col("event_id"),
+    col("campaign_id"),
+    col("event_timestamp"),
+    col("event_type"),
+    col("order_id"),
+    col("sku_id"),
+    col("warehouse_id"),
+    col("quantity"),
+    col("unit_price"),
+    col("promotion_id"),
+    col("promotion_applied"),
+    col("payment_method"),
+    col("payment_status"),
+    col("reservation_expires_at"),
+    col("source"),
+    col("movement_qty"),
+    col("is_valid_event"),
+    col("invalid_reason"),
+    col("event_date"),
+    col("event_hour"),
+    
+    col("kafka_key"),
+    col("json_value"),
+    col("topic").alias("kafka_topic"),
+    col("partition").alias("kafka_partition"),
+    col("offset").alias("kafka_offset"),
+    col("timestamp").alias("kafka_timestamp"),
 )
 
     query = write_to_postgres(
         df=output_df,
         checkpoint_location="data/checkpoints/postgres_current_state")
 
-    query.awaitTermination()
+    bronze_query = write_bronze_raw_inventory_events(output_df)
+    silver_movements_query = write_silver_inventory_movements(output_df)
+    silver_invalid_query = write_silver_invalid_events(output_df)
+
+    spark.streams.awaitAnyTermination()
 
 
 if __name__ == "__main__":
