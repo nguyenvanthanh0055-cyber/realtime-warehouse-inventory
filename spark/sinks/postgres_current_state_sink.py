@@ -239,6 +239,29 @@ def handle_invalid_event(cursor, event: Dict[str, Any])-> None:
     )
 
 def process_event(cursor, event: Dict[str, Any]) -> None:
+
+    if not event.get("event_id"):
+        print(
+            f"[INVALID PARSE] Missing event_id"
+            f"kafka_offset={event.get("kafka_offset")}"
+            f"json_value={event.get("json_value")}"
+        )
+        insert_inventory_alert(
+            cursor=cursor,
+            event={
+                "campaign_id": event.get("campaign_id") or "UNKNOWN",
+                "sku_id": event.get("sku_id"),
+                "warehouse_id": event.get("warehouse_id"),
+                "event_id": None,
+            },
+            alert_type="INVALID_EVENT",
+            current_sellable_stock=None,
+            message="Malformed Kafka message or JSON parse failed: missing event_id",
+        )
+
+        return
+
+
     is_new_event = insert_processed_event(cursor=cursor,event=event)
 
     if not is_new_event:
