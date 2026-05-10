@@ -33,6 +33,13 @@ class LakeConfig:
     def silver_alerts_checkpoint_path(self) -> str:
         return str(self.checkpoint_root / "silver_inventory_alerts")
     
+    @property
+    def silver_sales_velocity_5m_path(self) -> str:
+        return str(self.lake_root / "silver" / "sales_velocity_5m")
+    
+    @property
+    def silver_sales_velocity_5m_checkpoint_path(self) -> str:
+        return str(self.checkpoint_root / "silver_sales_velocity_5m")
     
 def load_lake_config() -> LakeConfig:
     lake_root = Path(

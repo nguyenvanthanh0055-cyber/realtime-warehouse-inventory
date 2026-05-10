@@ -10,6 +10,7 @@ from spark.sinks.lake_sink import (
     write_bronze_raw_inventory_events,
     write_silver_inventory_movements,
     write_silver_invalid_events,
+    write_silver_sales_velocity_5m
 )
 
 def create_spark_session(app_name: str) -> SparkSession:
@@ -137,14 +138,22 @@ def main():
     col("timestamp").alias("kafka_timestamp"),
 )
 
-    query = write_to_postgres(
+    postgres_query = write_to_postgres(
         df=output_df,
         checkpoint_location="data/checkpoints/postgres_current_state")
 
     bronze_query = write_bronze_raw_inventory_events(output_df)
     silver_movements_query = write_silver_inventory_movements(output_df)
     silver_invalid_query = write_silver_invalid_events(output_df)
+    silver_sales_velocity_query = write_silver_sales_velocity_5m(output_df)
 
+
+    print("Streaming queries started: ")
+    print(f"- Postgres current state: {postgres_query.id}")
+    print(f"- Bronze raw inventory events: {bronze_query.id}")
+    print(f"- Silver inventory movements: {silver_movements_query.id}")
+    print(f"- Silver invalid events: {silver_invalid_query.id}")
+    print(f"- Silver sales velocity 5m: {silver_sales_velocity_query.id}")
     spark.streams.awaitAnyTermination()
 
 

@@ -1,5 +1,14 @@
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, current_timestamp, lit
+from pyspark.sql.functions import (
+    col,
+    current_timestamp,
+    lit,
+    window,
+    sum,
+    count,
+    to_date,
+    hour
+    )
 
 from spark.common.lake_config import load_lake_config
 
@@ -76,6 +85,7 @@ def write_silver_inventory_movements(df: DataFrame):
 
 
 def write_silver_invalid_events(df: DataFrame):
+    
 
     config = load_lake_config()
 
@@ -109,5 +119,57 @@ def write_silver_invalid_events(df: DataFrame):
         .option("path", config.silver_inventory_alerts_path)
         .option("checkpointLocation", config.silver_alerts_checkpoint_path)
         .partitionBy("event_date", "event_hour")
+        .start()
+    )
+
+def write_silver_sales_velocity_5m(df: DataFrame):
+    
+    config = load_lake_config()
+
+    sales_events_df = (
+        df.filter(col("is_valid_event") == lit(True))
+        .filter(col("event_type").isin("STOCK_RESERVED", "COD_CONFIRMED"))
+        .filter(col("event_timestamp").isNotNull())
+        .filter(col("quantity").isNotNull())
+        .filter(col("quantity") > lit(0))
+    )
+
+    velocity_df = (
+        sales_events_df
+        .withWatermark("event_timestamp", "2 minutes")
+        .groupBy(
+            window(col("event_timestamp"), "1 minutes"),
+            col("campaign_id"),
+            col("sku_id"),
+            col("warehouse_id"),
+            col("promotion_id")
+        )
+        .agg(
+            count("order_id").alias("order_count"),
+            sum("quantity").alias("sold_qty")
+        )
+        .select(
+            col("campaign_id"),
+            col("sku_id"),
+            col("warehouse_id"),
+            col("promotion_id"),
+            col("window.start").alias("window_start"),
+            col("window.end").alias("window_end"),
+            lit(5).alias("window_size_minutes"),
+            col("order_count"),
+            col("sold_qty")
+        )
+        .withColumn("window_date", to_date(col("window_start")))
+        .withColumn("window_hour", hour(col("window_start")))
+        .withColumn("silver_processed_at", current_timestamp())
+    )
+
+    return (
+        velocity_df.writeStream
+        .format("parquet")
+        .outputMode("append")
+        .option("path", config.silver_sales_velocity_5m_path)
+        .option("checkpointLocation", config.silver_sales_velocity_5m_checkpoint_path)
+        .partitionBy("window_date", "window_hour")
         .start()
     )
