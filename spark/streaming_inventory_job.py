@@ -112,6 +112,7 @@ def main():
     col("event_id"),
     col("campaign_id"),
     col("event_timestamp"),
+    col("business_timestamp"),
     col("event_type"),
     col("order_id"),
     col("sku_id"),
@@ -128,7 +129,9 @@ def main():
     col("is_valid_event"),
     col("invalid_reason"),
     col("event_date"),
+    col("business_date"),
     col("event_hour"),
+    col("business_hour"),
     
     col("kafka_key"),
     col("json_value"),

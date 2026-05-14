@@ -23,8 +23,8 @@ def write_bronze_raw_inventory_events(df: DataFrame):
             col("kafka_partition"),
             col("kafka_offset"),
             col("kafka_timestamp"),
-            col("event_date"),
-            col("event_hour"),
+            col("event_date").alias("event_date_utc"),
+            col("event_hour").alias("event_hour_utc"),
         )
         .withColumn("bronze_ingested_at", current_timestamp())
     )
@@ -35,7 +35,7 @@ def write_bronze_raw_inventory_events(df: DataFrame):
         .outputMode("append")
         .option("path", config.bronze_raw_inventory_events_path)
         .option("checkpointLocation", config.bronze_checkpoint_path)
-        .partitionBy("event_date", "event_hour")
+        .partitionBy("event_date_utc", "event_hour_utc")
         .start()
     )
 
@@ -47,6 +47,7 @@ def write_silver_inventory_movements(df: DataFrame):
             col("event_id"),
             col("campaign_id"),
             col("event_timestamp"),
+            col("business_timestamp"),
             col("event_type"),
             col("order_id"),
             col("sku_id"),
@@ -68,7 +69,9 @@ def write_silver_inventory_movements(df: DataFrame):
             col("kafka_offset"),
             col("kafka_timestamp"),
             col("event_date"),
+            col("business_date"),
             col("event_hour"),
+            col("business_hour")
         )
         .withColumn("silver_processed_at", current_timestamp())
     )
@@ -79,7 +82,7 @@ def write_silver_inventory_movements(df: DataFrame):
         .outputMode("append")
         .option("path", config.silver_inventory_movement_path)
         .option("checkpointLocation", config.silver_movements_checkpoint_path)
-        .partitionBy("event_date", "event_hour")
+        .partitionBy("business_date", "business_hour")
         .start()
     )
 
@@ -94,6 +97,7 @@ def write_silver_invalid_events(df: DataFrame):
             col("event_id"),
             col("campaign_id"),
             col("event_timestamp"),
+            col("business_timestamp"),
             col("event_type"),
             col("sku_id"),
             col("warehouse_id"),
@@ -105,7 +109,9 @@ def write_silver_invalid_events(df: DataFrame):
             col("kafka_partition"),
             col("kafka_offset"),
             col("event_date"),
-            col("event_hour")
+            col("business_date"),
+            col("event_hour"),
+            col("business_hour")
         )
         .withColumn("alert_type", lit("INVALID_EVENT"))
         .withColumn("alert_created_at", current_timestamp())
@@ -118,7 +124,7 @@ def write_silver_invalid_events(df: DataFrame):
         .outputMode("append")
         .option("path", config.silver_inventory_alerts_path)
         .option("checkpointLocation", config.silver_alerts_checkpoint_path)
-        .partitionBy("event_date", "event_hour")
+        .partitionBy("business_date", "business_hour")
         .start()
     )
 
@@ -129,16 +135,16 @@ def write_silver_sales_velocity_5m(df: DataFrame):
     sales_events_df = (
         df.filter(col("is_valid_event") == lit(True))
         .filter(col("event_type").isin("STOCK_RESERVED", "COD_CONFIRMED"))
-        .filter(col("event_timestamp").isNotNull())
+        .filter(col("business_timestamp").isNotNull())
         .filter(col("quantity").isNotNull())
         .filter(col("quantity") > lit(0))
     )
 
     velocity_df = (
         sales_events_df
-        .withWatermark("event_timestamp", "2 minutes")
+        .withWatermark("business_timestamp", "10 minutes")
         .groupBy(
-            window(col("event_timestamp"), "1 minutes"),
+            window(col("business_timestamp"), "5 minutes"),
             col("campaign_id"),
             col("sku_id"),
             col("warehouse_id"),

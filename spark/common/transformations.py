@@ -1,8 +1,10 @@
+import os
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import(
     col,
     when,
     to_timestamp,
+    from_utc_timestamp,
     to_date,
     hour,
     lit
@@ -18,17 +20,32 @@ VALID_EVENT_TYPES = [
     "STOCK_REPLENISHED",
 ]
 
+BUSINESS_TIMEZONE = os.getenv(
+    "BUSINESS_TIMEZONE",
+    os.getenv("TIMEZONE", "Asia/Ho_Chi_Minh")
+)
+
 def add_parsed_event_time(df: DataFrame) -> DataFrame:
     return df.withColumn(
         "event_timestamp", 
         to_timestamp(col("event_time"))
         )
 
-def add_partition_columns(df: DataFrame) -> DataFrame:
+def add_utc_partition_columns(df: DataFrame) -> DataFrame:
     return (
         df
         .withColumn("event_date", to_date(col("event_time"))) \
         .withColumn("event_hour", hour(col("event_time")))
+    )
+
+def add_business_time_columns(df: DataFrame) -> DataFrame:
+    return(
+        df
+        .withColumn("business_timestamp",
+                    from_utc_timestamp(col("event_timestamp"), BUSINESS_TIMEZONE )
+                    )
+        .withColumn("business_date", to_date(col("business_timestamp")))
+        .withColumn("business_hour", hour(col("business_timestamp")))
     )
 
 def add_movement_qty(df: DataFrame) -> DataFrame:
@@ -134,7 +151,8 @@ def transform_inventory_events(df: DataFrame) -> DataFrame:
     return (
         df
         .transform(add_parsed_event_time)
-        .transform(add_partition_columns)
+        .transform(add_utc_partition_columns)
+        .transform(add_business_time_columns)
         .transform(add_movement_qty)
         .transform(add_validation_columns)
     )

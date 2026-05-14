@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-
+from datetime import datetime
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -132,11 +132,7 @@ def calculate_status(current_sellable_stock: int, low_stock_threshold: int) -> s
 
 
 def clear_runtime_tables_for_campaign(engine, campaign_id: str) -> None:
-    """
-    Local dev/test reset for one campaign.
-    In production, this would usually be handled by partitioning by campaign_id/date,
-    not by deleting data manually.
-    """
+
     with engine.begin() as conn:
         conn.execute(
             text("DELETE FROM processed_events WHERE campaign_id = :campaign_id"),
@@ -304,9 +300,13 @@ def write_opening_snapshot(
 
 
 def main():
+
+    # BUSINESS_TIMEZONE = os.getenv("BUSINESS_TIMEZONE", "Asia/Ho_Chi_Minh")
+
     print("os: ", os.getenv("CAMPAIGN_ID"))
     campaign_id = os.getenv("CAMPAIGN_ID")
     snapshot_date = os.getenv("SNAPSHOT_DATE")
+    # snapshot_date = datetime.now().strftime("%Y-%m-%d")
 
     if not campaign_id:
         raise ValueError("CAMPAIGN_ID is required. Example: CAMPAIGN_ID=CAMPAIGN_FLASH_0427")
