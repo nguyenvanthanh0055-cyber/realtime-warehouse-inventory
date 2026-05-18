@@ -1,20 +1,20 @@
 
 
 CREATE TABLE IF NOT EXISTS current_inventory (
-    campaign_id              VARCHAR(100) NOT NULL,
-    sku_id                   VARCHAR(100) NOT NULL,
-    warehouse_id             VARCHAR(100) NOT NULL,
-    product_name             VARCHAR(255),
+    campaign_id VARCHAR(100) NOT NULL,
+    sku_id VARCHAR(100) NOT NULL,
+    warehouse_id VARCHAR(100) NOT NULL,
+    product_name VARCHAR(255),
 
-    initial_sellable_stock   INTEGER NOT NULL DEFAULT 0,
-    current_sellable_stock   INTEGER NOT NULL DEFAULT 0,
-    low_stock_threshold      INTEGER NOT NULL DEFAULT 0,
-    status                   VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
-    last_event_id            VARCHAR(100),
-    last_event_time          TIMESTAMPTZ,
+    initial_sellable_stock INTEGER NOT NULL DEFAULT 0,
+    current_sellable_stock INTEGER NOT NULL DEFAULT 0,
+    low_stock_threshold INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
+    last_event_id VARCHAR(100),
+    last_event_time TIMESTAMPTZ,
 
-    created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     PRIMARY KEY (campaign_id, sku_id, warehouse_id),
 
@@ -28,35 +28,52 @@ CREATE TABLE IF NOT EXISTS current_inventory (
         CHECK (low_stock_threshold >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS current_inventory_state_history(
+    event_id VARCHAR(100) NOT NULL,           
+    campaign_id VARCHAR(100) NOT NULL,
+    sku_id VARCHAR(50) NOT NULL,
+    warehouse_id VARCHAR(50) NOT NULL,
+    event_time TIMESTAMPTZ ,
+    business_timestamp TIMESTAMPTZ,
+    business_date DATE,
+    event_type VARCHAR(100),
+    quantity INTEGER DEFAULT 0,
+    movement_qty INTEGER DEFAULT 0,
+    previous_sellable_stock INTEGER DEFAULT 0,
+    current_sellable_stock INTEGER DEFAULT 0,
+    status VARCHAR(50),
+    processed_at TIMESTAMPTZ
+);
+
 
 CREATE TABLE IF NOT EXISTS processed_events (
-    event_id        VARCHAR(100) PRIMARY KEY,
+    event_id VARCHAR(100) PRIMARY KEY,
 
-    campaign_id     VARCHAR(100) NOT NULL,
-    event_time      TIMESTAMPTZ NOT NULL,
-    event_type      VARCHAR(50) NOT NULL,
+    campaign_id VARCHAR(100) NOT NULL,
+    event_time TIMESTAMPTZ NOT NULL,
+    event_type VARCHAR(50) NOT NULL,
 
-    sku_id          VARCHAR(100) NOT NULL,
-    warehouse_id    VARCHAR(100) NOT NULL,
+    sku_id VARCHAR(100) NOT NULL,
+    warehouse_id VARCHAR(100) NOT NULL,
 
-    processed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 
 CREATE TABLE IF NOT EXISTS inventory_alerts (
-    alert_id                  BIGSERIAL PRIMARY KEY,
+    alert_id BIGSERIAL PRIMARY KEY,
 
-    campaign_id               VARCHAR(100) NOT NULL,
-    alert_type                VARCHAR(50) NOT NULL,
+    campaign_id VARCHAR(100) NOT NULL,
+    alert_type VARCHAR(50) NOT NULL,
 
-    sku_id                    VARCHAR(100),
-    warehouse_id              VARCHAR(100),
+    sku_id VARCHAR(100),
+    warehouse_id VARCHAR(100),
 
-    current_sellable_stock    INTEGER,
-    event_id                  VARCHAR(100),
-    message                   TEXT,
+    current_sellable_stock INTEGER,
+    event_id VARCHAR(100),
+    message TEXT,
 
-    created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT chk_inventory_alert_type
         CHECK (
@@ -71,20 +88,20 @@ CREATE TABLE IF NOT EXISTS inventory_alerts (
 
 
 CREATE TABLE IF NOT EXISTS sales_velocity_window (
-    campaign_id            VARCHAR(100) NOT NULL,
+    campaign_id VARCHAR(100) NOT NULL,
 
-    window_start           TIMESTAMPTZ NOT NULL,
-    window_end             TIMESTAMPTZ NOT NULL,
-    window_size_minutes    INTEGER NOT NULL DEFAULT 5,
+    window_start TIMESTAMPTZ NOT NULL,
+    window_end TIMESTAMPTZ NOT NULL,
+    window_size_minutes INTEGER NOT NULL DEFAULT 5,
 
-    sku_id                 VARCHAR(100) NOT NULL,
-    warehouse_id           VARCHAR(100) NOT NULL,
-    promotion_id           VARCHAR(100),
+    sku_id VARCHAR(100) NOT NULL,
+    warehouse_id VARCHAR(100) NOT NULL,
+    promotion_id VARCHAR(100),
 
-    paid_order_count       INTEGER NOT NULL DEFAULT 0,
-    sold_qty               INTEGER NOT NULL DEFAULT 0,
+    paid_order_count INTEGER NOT NULL DEFAULT 0,
+    sold_qty INTEGER NOT NULL DEFAULT 0,
 
-    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     PRIMARY KEY (
         campaign_id,
@@ -105,19 +122,19 @@ CREATE TABLE IF NOT EXISTS sales_velocity_window (
 );
 
 CREATE TABLE IF NOT EXISTS promotion_metrics (
-    campaign_id                 VARCHAR(100) NOT NULL,
-    promotion_id                VARCHAR(100) NOT NULL,
-    sku_id                      VARCHAR(100) NOT NULL,
-    warehouse_id                VARCHAR(100) NOT NULL,
+    campaign_id VARCHAR(100) NOT NULL,
+    promotion_id VARCHAR(100) NOT NULL,
+    sku_id VARCHAR(100) NOT NULL,
+    warehouse_id VARCHAR(100) NOT NULL,
 
-    promotion_quota             INTEGER NOT NULL DEFAULT 0,
-    promotion_consumed_qty      INTEGER NOT NULL DEFAULT 0,
-    promotion_cancelled_qty     INTEGER NOT NULL DEFAULT 0,
+    promotion_quota INTEGER NOT NULL DEFAULT 0,
+    promotion_consumed_qty INTEGER NOT NULL DEFAULT 0,
+    promotion_cancelled_qty INTEGER NOT NULL DEFAULT 0,
 
-    deal_sold_out_at            TIMESTAMPTZ,
+    deal_sold_out_at TIMESTAMPTZ,
 
-    created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     PRIMARY KEY (
         campaign_id,
@@ -138,25 +155,17 @@ CREATE TABLE IF NOT EXISTS promotion_metrics (
 
 
 CREATE TABLE IF NOT EXISTS reconciliation_result (
-    recon_date                         DATE NOT NULL,
-
-    campaign_id                        VARCHAR(100) NOT NULL,
-    sku_id                             VARCHAR(100) NOT NULL,
-    warehouse_id                       VARCHAR(100) NOT NULL,
-
-    opening_sellable_stock             INTEGER NOT NULL DEFAULT 0,
-    net_movement_qty                   INTEGER NOT NULL DEFAULT 0,
-
-    batch_recomputed_sellable_stock    INTEGER NOT NULL DEFAULT 0,
-    streaming_sellable_stock           INTEGER NOT NULL DEFAULT 0,
-
-    diff_qty                           INTEGER NOT NULL DEFAULT 0,
-
-    status                             VARCHAR(30) NOT NULL,
-    -- MATCH / MISMATCH
-
-    created_at                         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
+    recon_date DATE NOT NULL,
+    campaign_id VARCHAR(100) NOT NULL,
+    sku_id VARCHAR(100) NOT NULL,
+    warehouse_id VARCHAR(100) NOT NULL,
+    opening_sellable_stock INTEGER NOT NULL DEFAULT 0,
+    net_movement_qty INTEGER NOT NULL DEFAULT 0,
+    batch_recomputed_sellable_stock INTEGER NOT NULL DEFAULT 0,
+    streaming_sellable_stock INTEGER NOT NULL DEFAULT 0,
+    diff_qty INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (
         recon_date,
         campaign_id,
@@ -171,37 +180,37 @@ CREATE TABLE IF NOT EXISTS reconciliation_result (
 
 
 CREATE TABLE IF NOT EXISTS raw_inventory_events (
-    event_id                    VARCHAR(100) PRIMARY KEY,
+    event_id VARCHAR(100) PRIMARY KEY,
 
-    campaign_id                 VARCHAR(100),
-    event_time                  TIMESTAMPTZ,
-    event_type                  VARCHAR(50),
+    campaign_id VARCHAR(100),
+    event_time TIMESTAMPTZ,
+    event_type VARCHAR(50),
 
-    order_id                    VARCHAR(100),
-    sku_id                      VARCHAR(100),
-    warehouse_id                VARCHAR(100),
+    order_id VARCHAR(100),
+    sku_id VARCHAR(100),
+    warehouse_id VARCHAR(100),
 
-    quantity                    INTEGER,
-    unit_price                  NUMERIC(18, 2),
+    quantity INTEGER,
+    unit_price NUMERIC(18, 2),
 
-    promotion_id                VARCHAR(100),
-    promotion_applied           BOOLEAN,
+    promotion_id VARCHAR(100),
+    promotion_applied BOOLEAN,
 
-    payment_method              VARCHAR(50),
-    payment_status              VARCHAR(50),
-    reservation_expires_at      TIMESTAMPTZ,
+    payment_method VARCHAR(50),
+    payment_status VARCHAR(50),
+    reservation_expires_at TIMESTAMPTZ,
 
-    source                      VARCHAR(100),
+    source VARCHAR(100),
 
-    movement_qty                INTEGER,
-    is_valid_event              BOOLEAN,
-    invalid_reason              TEXT,
+    movement_qty INTEGER,
+    is_valid_event BOOLEAN,
+    invalid_reason TEXT,
 
-    kafka_topic                 VARCHAR(100),
-    kafka_partition             INTEGER,
-    kafka_offset                BIGINT,
+    kafka_topic VARCHAR(100),
+    kafka_partition INTEGER,
+    kafka_offset BIGINT,
 
-    created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 
