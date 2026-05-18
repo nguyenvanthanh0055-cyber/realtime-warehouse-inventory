@@ -1,7 +1,26 @@
-from typing import Dict, Any, Iterable
+from datetime import timezone
+from typing import Dict, Any
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from spark.common.postgres_config import load_postgres_config
+
+
+def as_utc_aware(value):
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value.astimezone(timezone.utc)
+
+
+def normalize_event_for_postgres(event: Dict[str, Any]) -> Dict[str, Any]:
+    normalized_event = dict(event)
+    normalized_event["event_timestamp"] = as_utc_aware(
+        normalized_event.get("event_timestamp")
+    )
+    return normalized_event
 
 def get_inventory_status(
         current_sellable_stock: int,
@@ -144,6 +163,13 @@ def update_current_inventory(cursor, event: Dict[str, Any]) -> None:
                        "sku_id": event["sku_id"],
                        "warehouse_id": event["warehouse_id"]
                    })
+    insert_current_inventory_state_history(
+        cursor=cursor,
+        event=event,
+        previous_sellable_stock=old_stock,
+        current_sellable_stock=new_stock,
+        status=new_status
+    )
     
     if new_status == "OVERSELL":
         insert_inventory_alert(
@@ -162,6 +188,64 @@ def update_current_inventory(cursor, event: Dict[str, Any]) -> None:
             current_sellable_stock=new_stock,
             message=f"Low stock detected. Current sellable stock={new_stock}"
         )
+
+def insert_current_inventory_state_history(
+        cursor,
+        event: Dict[str, Any],
+        previous_sellable_stock: int,
+        current_sellable_stock: int,
+        status: str
+) -> None:
+
+    insert_sql = """
+        INSERT INTO current_inventory_state_history(
+            event_id,
+            campaign_id,
+            sku_id,
+            warehouse_id,
+            event_time,
+            business_timestamp,
+            business_date,
+            event_type,
+            quantity,
+            movement_qty,
+            previous_sellable_stock,
+            current_sellable_stock,
+            status,
+            processed_at
+        )
+        VALUES(
+            %(event_id)s,
+            %(campaign_id)s,
+            %(sku_id)s,
+            %(warehouse_id)s,
+            %(event_time)s,
+            %(business_timestamp)s,
+            %(business_date)s,
+            %(event_type)s,
+            %(quantity)s,
+            %(movement_qty)s,
+            %(previous_sellable_stock)s,
+            %(current_sellable_stock)s,
+            %(status)s,
+            NOW()
+        );
+    """
+    cursor.execute(insert_sql, {
+        "event_id": event["event_id"],
+        "campaign_id": event["campaign_id"],
+        "sku_id": event["sku_id"],
+        "warehouse_id": event["warehouse_id"],
+        "event_time": event["event_timestamp"],
+        "business_timestamp": event["business_timestamp"],
+        "business_date": event["business_date"],
+        "event_type": event["event_type"],
+        "quantity": event["quantity"],
+        "movement_qty": event["movement_qty"],
+        "previous_sellable_stock": previous_sellable_stock,
+        "current_sellable_stock": current_sellable_stock,
+        "status": status
+    })
 
 def update_promotion_metrics(cursor, event: dict) -> None:
 
@@ -243,8 +327,8 @@ def process_event(cursor, event: Dict[str, Any]) -> None:
     if not event.get("event_id"):
         print(
             f"[INVALID PARSE] Missing event_id"
-            f"kafka_offset={event.get("kafka_offset")}"
-            f"json_value={event.get("json_value")}"
+            f"kafka_offset={event.get('kafka_offset')}"
+            f"json_value={event.get('json_value')}"
         )
         insert_inventory_alert(
             cursor=cursor,
@@ -285,6 +369,7 @@ def process_event(cursor, event: Dict[str, Any]) -> None:
         f"warehouse_id={event['warehouse_id']}"
         )
 
+
 def write_batch_to_postgres(batch_df, batch_id: int) -> None:
     if batch_df.isEmpty():
         print(f"[BATCH {batch_id}] Empty")
@@ -295,6 +380,8 @@ def write_batch_to_postgres(batch_df, batch_id: int) -> None:
         "event_id",
         "campaign_id",
         "event_timestamp",
+        "business_timestamp",
+        "business_date",
         "event_type",
         "order_id",
         "sku_id",
@@ -312,8 +399,10 @@ def write_batch_to_postgres(batch_df, batch_id: int) -> None:
         "invalid_reason",
     ]
 
-    events = [row.asDict(recursive=True)
-             for row in batch_df.select(*columns).collect()]
+    events = [
+        normalize_event_for_postgres(row.asDict(recursive=True))
+        for row in batch_df.select(*columns).collect()
+    ]
     
     print(f"[BATCH {batch_id}] Processing {len(events)} events")
 

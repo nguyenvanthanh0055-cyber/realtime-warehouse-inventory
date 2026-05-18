@@ -34,8 +34,8 @@ def add_parsed_event_time(df: DataFrame) -> DataFrame:
 def add_utc_partition_columns(df: DataFrame) -> DataFrame:
     return (
         df
-        .withColumn("event_date", to_date(col("event_time"))) \
-        .withColumn("event_hour", hour(col("event_time")))
+        .withColumn("event_date", to_date(col("event_timestamp")))
+        .withColumn("event_hour", hour(col("event_timestamp")))
     )
 
 def add_business_time_columns(df: DataFrame) -> DataFrame:

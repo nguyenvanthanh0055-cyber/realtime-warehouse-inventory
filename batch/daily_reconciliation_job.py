@@ -5,6 +5,7 @@ from pyspark.sql.functions import (
     coalesce,
     col,
     current_timestamp,
+    to_date,
     lit,
     sum,
     count,
@@ -16,6 +17,7 @@ def build_spark() -> SparkSession:
     return (
         SparkSession.builder
         .appName("daily-inventory-reconciliation")
+        .config("spark.sql.session.timeZone", "UTC")
         .getOrCreate()
     )
 
@@ -101,28 +103,48 @@ def sql_literal(value: str) -> str:
     return value.replace("'", "''")
 
 
-def read_streaming_current_state(
+def read_streaming_state_history(
     spark: SparkSession,
     postgres_url: str,
     postgres_user: str,
     postgres_password: str,
-    campaign_id: str
+    campaign_id: str,
+    recon_date: str
 ) -> DataFrame:
     escaped_campaign_id = sql_literal(campaign_id)
+    escaped_recon_date = sql_literal(recon_date)
     query = f"""
     (
         SELECT
             campaign_id,
             sku_id,
             warehouse_id,
-            current_sellable_stock as streaming_sellable_stock,
-            status as streaming_status,
-            last_event_id,
-            last_event_time,
-            updated_at
-        FROM current_inventory
-        WHERE campaign_id = '{escaped_campaign_id}'
-    ) AS current_inventory_filtered
+            current_sellable_stock AS streaming_sellable_stock,
+            status AS streaming_status,
+            event_id AS last_event_id,
+            event_time AS last_event_time,
+            processed_at AS updated_at
+        FROM (
+            SELECT
+                campaign_id,
+                sku_id,
+                warehouse_id,
+                current_sellable_stock,
+                status,
+                event_id,
+                event_time,
+                business_date,
+                processed_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY campaign_id, sku_id, warehouse_id
+                    ORDER BY business_date DESC, event_time DESC, processed_at DESC, event_id DESC
+                ) AS row_num
+            FROM current_inventory_state_history
+            WHERE campaign_id = '{escaped_campaign_id}'
+              AND business_date <= DATE '{escaped_recon_date}'
+        ) ranked_state_history
+        WHERE row_num = 1
+    ) AS streaming_state_history
     """
 
     return (
@@ -160,7 +182,7 @@ def build_reconciliation_result(
 
     result_df = (
         joined_df
-        .withColumn("recon_date", lit(recon_date))
+        .withColumn("recon_date", to_date(lit(recon_date)))
         .withColumn("net_movement_qty", coalesce(col("net_movement_qty"), lit(0)).cast("int"))
         .withColumn("event_count", coalesce(col("event_count"), lit(0)))
         .withColumn(
@@ -169,7 +191,10 @@ def build_reconciliation_result(
         )
         .withColumn(
             "streaming_sellable_stock",
-            col("streaming_sellable_stock").cast("int")
+            coalesce(
+                col("streaming_sellable_stock").cast("int"),
+                col("opening_sellable_stock")
+            )
         )
         .withColumn(
             "diff_qty",
@@ -215,7 +240,7 @@ def build_daily_summary(
     )
     result_df = (
         joined_df
-        .withColumn("summary_date", lit(recon_date))
+        .withColumn("summary_date", to_date(lit(recon_date)))
         .withColumn("net_movement_qty", coalesce(col("net_movement_qty"), lit(0)).cast("int"))
         .withColumn("event_count", coalesce(col("event_count"), lit(0)).cast("int"))
         .withColumn("total_reserved_qty", coalesce(col("reserved_qty"), lit(0)).cast("int"))
@@ -349,12 +374,13 @@ def main():
 
     net_movement_df = compute_net_movement(movement_df)
 
-    current_state_df = read_streaming_current_state(
+    current_state_df = read_streaming_state_history(
         spark=spark,
         postgres_url=args.postgres_url,
         postgres_user=args.postgres_user,
         postgres_password=args.postgres_password,
-        campaign_id=args.campaign_id
+        campaign_id=args.campaign_id,
+        recon_date=args.recon_date
     )
 
     reconciliation_df = build_reconciliation_result(
