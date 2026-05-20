@@ -396,12 +396,6 @@ def main():
         recon_date=args.recon_date
     )
 
-    print("[Phase 8] Reconciliation preview")
-    reconciliation_df.show(truncate=False)
-
-    print("[Phase 8] Daily summary preview")
-    daily_summary_df.show(truncate=False)
-
     write_gold_outputs(
         reconciliation_df=reconciliation_df,
         daily_summary_df=daily_summary_df,

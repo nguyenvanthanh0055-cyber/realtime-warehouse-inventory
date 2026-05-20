@@ -370,12 +370,12 @@ def process_event(cursor, event: Dict[str, Any]) -> None:
         )
 
 
-def write_batch_to_postgres(batch_df, batch_id: int) -> None:
+def write_batch_to_postgres_foreach_partition(batch_df, batch_id: int) -> None:
     if batch_df.isEmpty():
         print(f"[BATCH {batch_id}] Empty")
         return
 
-    config =  load_postgres_config()
+    config = load_postgres_config()
     columns = [
         "event_id",
         "campaign_id",
@@ -399,32 +399,36 @@ def write_batch_to_postgres(batch_df, batch_id: int) -> None:
         "invalid_reason",
     ]
 
-    events = [
-        normalize_event_for_postgres(row.asDict(recursive=True))
-        for row in batch_df.select(*columns).collect()
-    ]
-    
-    print(f"[BATCH {batch_id}] Processing {len(events)} events")
+    def process_partition(rows) -> None:
+        conn = None
 
-    conn = None
+        try:
+            conn = psycopg2.connect(config.dsn)
+            conn.autocommit = False
 
-    try:
-        conn = psycopg2.connect(config.dsn)
-        conn.autocommit = False
+            processed_count = 0
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                for row in rows:
+                    event = normalize_event_for_postgres(
+                        row.asDict(recursive=True)
+                    )
+                    process_event(cursor, event)
+                    processed_count += 1
 
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            for event in events:
-                process_event(cursor,event)
-        
-        conn.commit()
-        print(f"[BATCH {batch_id}] Commit successful")
-    
-    except Exception as e:
-        if conn is not None:
-            conn.rollback()
-        print(f"[BATCH {batch_id}] Failed. Rolled back. Error: {e}")
-        raise
+            conn.commit()
+            print(
+                f"[BATCH {batch_id}] Partition commit successful. "
+                f"Processed {processed_count} events"
+            )
 
-    finally:
-        if conn is not None:
-            conn.close()
+        except Exception as e:
+            if conn is not None:
+                conn.rollback()
+            print(f"[BATCH {batch_id}] Partition failed. Rolled back. Error: {e}")
+            raise
+
+        finally:
+            if conn is not None:
+                conn.close()
+
+    batch_df.select(*columns).foreachPartition(process_partition)

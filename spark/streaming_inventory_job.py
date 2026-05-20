@@ -5,7 +5,7 @@ from pyspark.sql.functions import col, from_json
 
 from common.schemas import inventory_event_schema
 from common.transformations import transform_inventory_events
-from spark.sinks.postgres_current_state_sink import write_batch_to_postgres
+from spark.sinks.postgres_current_state_sink import write_batch_to_postgres_foreach_partition
 from spark.sinks.lake_sink import (
     write_bronze_raw_inventory_events,
     write_silver_inventory_movements,
@@ -70,7 +70,7 @@ def parse_kafka_events(kafka_df):
 def write_to_postgres(df, checkpoint_location: str):
     return(
         df.writeStream
-        .foreachBatch(write_batch_to_postgres)
+        .foreachBatch(write_batch_to_postgres_foreach_partition)
         .outputMode("update")
         .option("checkPointLocation", checkpoint_location)
         .trigger(processingTime="5 seconds")
