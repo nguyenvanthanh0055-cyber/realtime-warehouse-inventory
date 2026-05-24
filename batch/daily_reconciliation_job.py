@@ -280,30 +280,28 @@ def build_daily_summary(
 def write_gold_outputs(
     reconciliation_df: DataFrame,
     daily_summary_df: DataFrame,
-    lake_root: str,
-    recon_date: str,
-    campaign_id: str
+    lake_root: str
 ) -> None:
     reconciliation_path = (
         f"{lake_root}/gold/inventory_reconciliation/"
-        f"recon_date={recon_date}/campaign_id={campaign_id}"
     )
 
     daily_summary_path = (
         f"{lake_root}/gold/daily_inventory_summary/"
-        f"recon_date={recon_date}/campaign_id={campaign_id}"
     )
 
     reconciliation_df \
         .coalesce(1) \
         .write \
         .mode("overwrite") \
+        .partitionBy("recon_date", "campaign_id") \
         .parquet(reconciliation_path)
     
     daily_summary_df \
     .coalesce(1) \
     .write \
     .mode("overwrite") \
+    .partitionBy("summary_date", "campaign_id") \
     .parquet(daily_summary_path)
 
     print(f"[GOLD] Wrote reconciliation to: {reconciliation_path}")
@@ -399,9 +397,7 @@ def main():
     write_gold_outputs(
         reconciliation_df=reconciliation_df,
         daily_summary_df=daily_summary_df,
-        lake_root=args.lake_root,
-        recon_date=args.recon_date,
-        campaign_id=args.campaign_id
+        lake_root=args.lake_root
     )
 
     print("[Phase 8] Completed daily reconciliation")
