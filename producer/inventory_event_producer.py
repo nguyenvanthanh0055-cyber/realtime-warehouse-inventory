@@ -17,7 +17,7 @@ from event_generator import (
 DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092"
 DEFAULT_TOPIC = "inventory-events"
 
-DEFAULT_CAMPAIGN_ID = "CAMPAIGN_FLASH_0427"
+DEFAULT_CAMPAIGN_ID = "CAMPAIGN_FLASH_0527"
 DEFAULT_WAREHOUSE_ID = "WH_HCM_01"
 
 FAILED_EVENTS_PATH = "data/lake/raw/failed_producer_events.jsonl"

@@ -25,7 +25,7 @@ PAYMENT_METHODS = [
 
 FLOW_TYPES = [
     "E_WALLET_PAID",
-    "E_WALLET_EXPIRED",
+#   "E_WALLET_EXPIRED",
     "COD_CONFIRMED",
     "ORDER_CANCELLED",
     "RETURN_RECEIVED",
@@ -552,9 +552,9 @@ def generate_random_event_or_flow(
         FLOW_TYPES,
         weights=[
             45,  # E_WALLET_PAID
-            5,   # E_WALLET_EXPIRED
+            # 5,   # E_WALLET_EXPIRED
             35,  # COD_CONFIRMED
-            5,   # ORDER_CANCELLED
+            10,   # ORDER_CANCELLED
             3,   # RETURN_RECEIVED
             7,   # STOCK_REPLENISHED
         ],
@@ -609,8 +609,7 @@ def generate_random_event_or_flow(
         ]
 
     if flow_type == "ORDER_CANCELLED":
-        # MVP: tạo order_id giả để test movement cộng tồn.
-        # Sau Phase 6/7 có thể nâng cấp thành cancel từ order đã tồn tại.
+
         return [
             generate_order_cancelled_event(
                 campaign_id=campaign_id,

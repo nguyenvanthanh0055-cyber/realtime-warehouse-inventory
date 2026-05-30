@@ -73,7 +73,7 @@ def write_to_postgres(df, checkpoint_location: str):
         .foreachBatch(write_batch_to_postgres_foreach_partition)
         .outputMode("update")
         .option("checkPointLocation", checkpoint_location)
-        .trigger(processingTime="5 seconds")
+        .trigger(processingTime="15 seconds")
         .start()
     )
 def main():
