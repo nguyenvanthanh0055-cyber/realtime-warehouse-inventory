@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS current_inventory (
 );
 
 CREATE TABLE IF NOT EXISTS current_inventory_state_history(
+    history_id BIGSERIAL PRIMARY KEY,
     event_id VARCHAR(100) NOT NULL,           
     campaign_id VARCHAR(100) NOT NULL,
     sku_id VARCHAR(50) NOT NULL,
@@ -246,4 +247,3 @@ CREATE INDEX IF NOT EXISTS idx_raw_inventory_events_campaign_time
 
 CREATE INDEX IF NOT EXISTS idx_raw_inventory_events_sku_time
     ON raw_inventory_events (sku_id, warehouse_id, event_time);
-

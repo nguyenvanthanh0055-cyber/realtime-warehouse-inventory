@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS mart.fact_daily_inventory_summary (
     total_expired_qty INTEGER,
     total_returned_qty INTEGER,
     total_replenished_qty INTEGER,
+    sales_movement_qty INTEGER,
     net_movement_qty INTEGER,
     closing_sellable_stock INTEGER,
     event_count BIGINT,

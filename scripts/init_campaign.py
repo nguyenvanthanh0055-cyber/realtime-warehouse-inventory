@@ -135,7 +135,14 @@ def clear_runtime_tables_for_campaign(engine, campaign_id: str) -> None:
 
     with engine.begin() as conn:
         conn.execute(
+            text("ALTER TABLE current_inventory_state_history ADD COLUMN IF NOT EXISTS history_id BIGSERIAL")
+        )
+        conn.execute(
             text("DELETE FROM processed_events WHERE campaign_id = :campaign_id"),
+            {"campaign_id": campaign_id},
+        )
+        conn.execute(
+            text("DELETE FROM current_inventory_state_history WHERE campaign_id = :campaign_id"),
             {"campaign_id": campaign_id},
         )
         conn.execute(

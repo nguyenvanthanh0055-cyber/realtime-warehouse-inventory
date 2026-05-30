@@ -67,6 +67,7 @@ def read_silver_movements(
         df.filter(col("campaign_id") == campaign_id)
         .filter(col("business_date") == recon_date)
         .filter(col("is_valid_event") == lit(True))
+        .dropDuplicates(["event_id"])
     )
 
 
@@ -94,7 +95,10 @@ def compute_net_movement(movement_df: DataFrame) -> DataFrame:
             ).cast("int").alias("returned_qty"),
             sum(
                 when(col("event_type") == "STOCK_REPLENISHED", col("quantity")).otherwise(lit(0))
-            ).cast("int").alias("replenished_qty")
+            ).cast("int").alias("replenished_qty"),
+            sum(
+                when(col("event_type") != "STOCK_REPLENISHED", col("movement_qty")).otherwise(lit(0))
+            ).cast("int").alias("sales_movement_qty")
         )
     )
 
@@ -137,7 +141,7 @@ def read_streaming_state_history(
                 processed_at,
                 ROW_NUMBER() OVER (
                     PARTITION BY campaign_id, sku_id, warehouse_id
-                    ORDER BY business_date DESC, event_time DESC, processed_at DESC, event_id DESC
+                    ORDER BY processed_at DESC, business_date DESC, event_time DESC, event_id DESC
                 ) AS row_num
             FROM current_inventory_state_history
             WHERE campaign_id = '{escaped_campaign_id}'
@@ -184,7 +188,8 @@ def build_reconciliation_result(
         joined_df
         .withColumn("recon_date", to_date(lit(recon_date)))
         .withColumn("net_movement_qty", coalesce(col("net_movement_qty"), lit(0)).cast("int"))
-        .withColumn("event_count", coalesce(col("event_count"), lit(0)))
+        .withColumn("event_count", coalesce(col("event_count"), lit(0)).cast("int"))
+        .withColumn("has_streaming_state", col("streaming_sellable_stock").isNotNull())
         .withColumn(
             "batch_recomputed_sellable_stock",
             col("opening_sellable_stock") + col("net_movement_qty")
@@ -203,7 +208,8 @@ def build_reconciliation_result(
         .withColumn(
             "status",
             when(
-                col("streaming_sellable_stock").isNotNull() & (col("diff_qty") == 0),
+                ((col("has_streaming_state") == lit(True)) | (col("event_count") == lit(0))) &
+                (col("diff_qty") == 0),
                 lit("MATCH")
             ).otherwise(lit("MISMATCH"))
         )
@@ -249,9 +255,10 @@ def build_daily_summary(
         .withColumn("total_expired_qty", coalesce(col("expired_qty"), lit(0)).cast("int"))
         .withColumn("total_returned_qty", coalesce(col("returned_qty"), lit(0)).cast("int"))
         .withColumn("total_replenished_qty", coalesce(col("replenished_qty"), lit(0)).cast("int"))
+        .withColumn("sales_movement_qty", coalesce(col("sales_movement_qty"), lit(0)).cast("int"))
         .withColumn(
             "closing_sellable_stock",
-            col("opening_sellable_stock") + col("net_movement_qty")
+            col("opening_sellable_stock") + col("total_replenished_qty") + col("sales_movement_qty")
         )
         .withColumn("created_at", current_timestamp())
         .select(
@@ -267,6 +274,7 @@ def build_daily_summary(
             "total_expired_qty",
             "total_returned_qty",
             "total_replenished_qty",
+            "sales_movement_qty",
             "net_movement_qty",
             "closing_sellable_stock",
             "event_count",
@@ -400,7 +408,7 @@ def main():
         lake_root=args.lake_root
     )
 
-    print("[Phase 8] Completed daily reconciliation")
+    print("Completed daily reconciliation")
 
 if __name__ == "__main__":
     main()

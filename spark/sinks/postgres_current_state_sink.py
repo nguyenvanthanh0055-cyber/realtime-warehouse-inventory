@@ -147,7 +147,7 @@ def update_current_inventory(cursor, event: Dict[str, Any]) -> None:
         status = %(new_status)s,
         last_event_id = %(event_id)s,
         last_event_time = %(event_timestamp)s,
-        updated_at = NOW()
+        updated_at = clock_timestamp()
     WHERE campaign_id = %(campaign_id)s
     AND sku_id = %(sku_id)s
     AND warehouse_id = %(warehouse_id)s
@@ -228,7 +228,7 @@ def insert_current_inventory_state_history(
             %(previous_sellable_stock)s,
             %(current_sellable_stock)s,
             %(status)s,
-            NOW()
+            clock_timestamp()
         );
     """
     cursor.execute(insert_sql, {

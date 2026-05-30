@@ -31,7 +31,7 @@ def read_kafka_stream(
         .format("kafka")
         .option("kafka.bootstrap.servers", bootstrap_servers)
         .option("subscribe", topic)
-        .option("startingOffsets", "latest")
+        .option("startingOffsets", "earliest")
         .load()
     )
 
@@ -72,7 +72,7 @@ def write_to_postgres(df, checkpoint_location: str):
         df.writeStream
         .foreachBatch(write_batch_to_postgres_foreach_partition)
         .outputMode("update")
-        .option("checkPointLocation", checkpoint_location)
+        .option("checkpointLocation", checkpoint_location)
         .trigger(processingTime="15 seconds")
         .start()
     )
