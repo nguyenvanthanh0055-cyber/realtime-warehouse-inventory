@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timezone
 from typing import List
 
+
 from confluent_kafka import Producer
 
 from event_generator import (
@@ -14,11 +15,10 @@ from event_generator import (
 )
 
 
-DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092"
-DEFAULT_TOPIC = "inventory-events"
-
-DEFAULT_CAMPAIGN_ID = "CAMPAIGN_FLASH_0527"
-DEFAULT_WAREHOUSE_ID = "WH_HCM_01"
+BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
+TOPIC = os.getenv("KAFKA_TOPIC", "inventory-events")
+CAMPAIGN_ID = os.getenv("CAMPAIGN_ID", "CAMPAIGN_FLASH_0527")
+WAREHOUSE_ID = os.getenv("WAREHOUSE_ID", "WH_HCM_01")
 
 FAILED_EVENTS_PATH = "data/lake/raw/failed_producer_events.jsonl"
 
@@ -135,25 +135,25 @@ def main():
 
     parser.add_argument(
         "--bootstrap-servers",
-        default=DEFAULT_BOOTSTRAP_SERVERS,
-        help="Kafka bootstrap servers",
+        default=BOOTSTRAP_SERVERS,
+        help="Kafka/MSK bootstrap servers",
     )
 
     parser.add_argument(
         "--topic",
-        default=DEFAULT_TOPIC,
+        default=TOPIC,
         help="Kafka topic name",
     )
 
     parser.add_argument(
         "--campaign-id",
-        default=DEFAULT_CAMPAIGN_ID,
+        default=CAMPAIGN_ID,
         help="Campaign ID",
     )
 
     parser.add_argument(
         "--warehouse-id",
-        default=DEFAULT_WAREHOUSE_ID,
+        default=WAREHOUSE_ID,
         help="Warehouse ID",
     )
 
@@ -179,6 +179,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if not args.bootstrap_servers:
+        raise ValueError("KAFKA_BOOTSTRAP_SERVERS or --bootstrap-servers is required")
 
     producer = create_kafka_producer(args.bootstrap_servers)
 

@@ -8,7 +8,9 @@ from awsglue.utils import getResolvedOptions
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s - %(message)s"
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    stream=sys.stdout,
+    force=True,
 )
 logger = logging.getLogger(__name__)
 
@@ -17,7 +19,6 @@ def parse_args():
     return getResolvedOptions(
         sys.argv,
         [
-            "JOB_NAME",
             "summary_date",
             "recon_date",
             "campaign_id",
@@ -27,6 +28,7 @@ def parse_args():
             "redshift_workgroup",
             "redshift_database",
             "redshift_iam_role",
+            "redshift_secret_arn",
             "aws_region"
         ]
     )
@@ -41,6 +43,7 @@ def load_sql_from_s3(
     params: dict,
 ) -> str:
     key = f"{prefix.rstrip('/')}/{filename.lstrip('/')}"
+    logger.info("Loading SQL from s3://%s/%s", bucket, key)
 
     obj = s3_client.get_object(
         Bucket=bucket,
@@ -63,13 +66,15 @@ def render_template(sql_text: str, params: dict) -> str:
 def split_sql_statements(sql_text: str) -> list[str]:
     return [stmt.strip() for stmt in sql_text.split(";") if stmt.strip()]
 
-def execute_statement(client, *, workgroup_name: str, database: str, sql: str):
+def execute_statement(client, *, workgroup_name: str, database: str, secret_arn: str, sql: str):
     respone = client.execute_statement(
         WorkgroupName= workgroup_name,
         Database= database,
+        SecretArn=secret_arn,
         Sql= sql
     )
     statement_id = respone["Id"]
+    logger.info("Submitted Redshift statement %s", statement_id)
 
     while True:
         desc = client.describe_statement(Id=statement_id)
@@ -83,6 +88,8 @@ def execute_statement(client, *, workgroup_name: str, database: str, sql: str):
     if status != "FINISHED":
         error = desc.get("Error", "Unknown Redshift Data API error")
         raise RuntimeError(f"SQL failed: {error}\nSQL:\n{sql}")
+
+    logger.info("Finished Redshift statement %s", statement_id)
 
 
 def run_sql_file(redshift_client ,s3_client, args, file_name, params, single_statement=False):
@@ -101,6 +108,7 @@ def run_sql_file(redshift_client ,s3_client, args, file_name, params, single_sta
             redshift_client,
             workgroup_name=args["redshift_workgroup"],
             database=args["redshift_database"],
+            secret_arn=args["redshift_secret_arn"],
             sql= statement
         )
 
@@ -166,7 +174,7 @@ def main():
             single_statement=True
         )
         raise
-    
+
     logger.info("COPY S3 Gold partitions inventory_reconciliation to Redshift mart")
 
     try:
@@ -196,6 +204,8 @@ def main():
             single_statement=True
         )
         raise
+
+    logger.info("Completed load data from gold to redshift")
 
 if __name__ == "__main__":
     main()

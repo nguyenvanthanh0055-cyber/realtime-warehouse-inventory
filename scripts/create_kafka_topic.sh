@@ -1,16 +1,17 @@
 #!/bin/bash
 
-TOPIC_NAME="inventory-events"
+TOPIC_NAME="${KAFKA_TOPIC:-inventory-events}"
+BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS}"
 
-docker exec realtime-warehouse-inventory-kafka-1 kafka-topics \
-  --bootstrap-server realtime-warehouse-inventory-kafka-1:29092 \
+kafka-topics \
+  --bootstrap-server "$BOOTSTRAP_SERVERS" \
   --create \
   --if-not-exists \
-  --topic ${TOPIC_NAME} \
+  --topic "$TOPIC_NAME" \
   --partitions 3 \
-  --replication-factor 1
+  --replication-factor 2
 
-docker exec realtime-warehouse-inventory-kafka-1 kafka-topics \
-  --bootstrap-server realtime-warehouse-inventory-kafka-1:29092 \
+kafka-topics \
+  --bootstrap-server "$BOOTSTRAP_SERVERS" \
   --describe \
-  --topic ${TOPIC_NAME}
+  --topic "$TOPIC_NAME"

@@ -16,3 +16,5 @@ logs/
 
 sql_phase9.sql
 data/checkpoints/
+.codex
+.agents

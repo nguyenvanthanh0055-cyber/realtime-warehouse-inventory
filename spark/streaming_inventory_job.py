@@ -1,5 +1,5 @@
 import argparse
-
+import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json
 
@@ -12,6 +12,8 @@ from spark.sinks.lake_sink import (
     write_silver_invalid_events,
     write_silver_sales_velocity_5m
 )
+
+
 
 def create_spark_session(app_name: str) -> SparkSession:
     return (
@@ -77,21 +79,37 @@ def write_to_postgres(df, checkpoint_location: str):
         .start()
     )
 def main():
+    
+    BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
+    TOPIC = os.getenv("KAFKA_TOPIC", "inventory-events")
+    ENABLE_POSTGRES_SINK = os.getenv("ENABLE_POSTGRES_SINK", "false").lower() == "true"
+
     parser = argparse.ArgumentParser(
         description="Spark Structured Streaming job for inventory events"
     )
 
     parser.add_argument(
         "--bootstrap-servers",
-        default="localhost:9092",
+        default=BOOTSTRAP_SERVERS,
+        help="Kafka/MSK bootstrap servers",
     )
 
     parser.add_argument(
         "--topic",
-        default="inventory-events",
+        default=TOPIC,
+    )
+
+    parser.add_argument(
+        "--enable-postgres-sink",
+        action="store_true",
+        default=ENABLE_POSTGRES_SINK,
+        help="Enable the local/Postgres current-state sink.",
     )
 
     args = parser.parse_args()
+
+    if not args.bootstrap_servers:
+        raise ValueError("KAFKA_BOOTSTRAP_SERVERS or --bootstrap-servers is required")
 
     spark = create_spark_session(
         app_name="inventory-streaming-job"
@@ -142,9 +160,12 @@ def main():
     col("timestamp").alias("kafka_timestamp"),
 )
 
-    postgres_query = write_to_postgres(
-        df=output_df,
-        checkpoint_location="data/checkpoints/postgres_current_state")
+    postgres_query = None
+    if args.enable_postgres_sink:
+        postgres_query = write_to_postgres(
+            df=output_df,
+            checkpoint_location="data/checkpoints/postgres_current_state"
+        )
 
     bronze_query = write_bronze_raw_inventory_events(output_df)
     silver_movements_query = write_silver_inventory_movements(output_df)
@@ -153,7 +174,10 @@ def main():
 
 
     print("Streaming queries started: ")
-    print(f"- Postgres current state: {postgres_query.id}")
+    if postgres_query:
+        print(f"- Postgres current state: {postgres_query.id}")
+    else:
+        print("- Postgres current state: disabled")
     print(f"- Bronze raw inventory events: {bronze_query.id}")
     print(f"- Silver inventory movements: {silver_movements_query.id}")
     print(f"- Silver invalid events: {silver_invalid_query.id}")

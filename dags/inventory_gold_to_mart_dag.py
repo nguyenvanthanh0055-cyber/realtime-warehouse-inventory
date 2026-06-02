@@ -14,7 +14,7 @@ AWS_CONN_ID = "aws_default"
 
 GLUE_GOLD_BATCH_JOB_NAME = "inventory-gold-batch-job"
 
-DEFAULT_CAMPAIGN_ID = "CAMPAIGN_FLASH_0527"
+DEFAULT_CAMPAIGN_ID = "CAMPAIGN_FLASH_0530"
 
 LAKE_ROOT = "s3://inventory-lake-fox"
 
@@ -39,7 +39,7 @@ def validate_params(**context) -> None:
         raise AirflowException("Missing campaign id")
     
     try:
-        datetime.strftime(recon_date, "%Y-%m-%d")
+        datetime.strptime(recon_date, "%Y-%m-%d")
     except ValueError as e:
         raise AirflowException(
             f"Invalid recon_date format: {recon_date}. Expected yyyy-mm-dd."
@@ -59,7 +59,7 @@ default_args = {
 
 
 with DAG(
-    dag_id="inventory-gold-batch-job",
+    dag_id=DAG_ID,
     start_date=datetime(2026, 5, 24, tzinfo=TZ),
     schedule="@daily",
     catchup=False,
@@ -74,9 +74,11 @@ with DAG(
         task_id = "inventory-gold-batch-job",
         job_name= "inventory-gold-batch-job",
         script_args={
-            "--campaign_id": "{{ti.xcom_pull(task_ids='validate_runtime_params', key='campaign_id')}}",
+            # "--campaign_id": "{{ti.xcom_pull(task_ids='validate_runtime_params', key='campaign_id')}}",
+            "--campaign_id": "CAMPAIGN_FLASH_0530",
             "--lake_root": LAKE_ROOT,
-            "--recon_date": "{{ti.xcom_pull(task_ids='validate_runtime_params', key='recon_date')}}"
+            # "--recon_date": "{{ti.xcom_pull(task_ids='validate_runtime_params', key='recon_date')}}"
+            "--recon_date": "2026-05-30"
         },
         wait_for_completion= True,
         aws_conn_id=AWS_CONN_ID,
@@ -84,4 +86,29 @@ with DAG(
     )
 
 
-    validate_params >> gold_to_mart
+    redshift_load_gold = GlueJobOperator(
+        task_id = "redshift_load_gold",
+        job_name = "redshift_load_gold",
+        script_args = {
+            "--summary_date": "2026-05-30",
+            "--recon_date": "2026-05-30",
+            "--campaign_id": "CAMPAIGN_FLASH_0530",
+            "--lake_root": LAKE_ROOT,
+            "--sql_bucket": "inventory-lake-fox",
+            "--sql_prefix": "artifacts/redshift/sql",
+            "--redshift_workgroup": "inventory-dev-wg",
+            "--redshift_database": "dev",
+            "--redshift_iam_role": "arn:aws:iam::946445279560:role/service-role/AmazonRedshift-CommandsAccessRole-20260516T171518",
+            "--redshift_secret_arn":"arn:aws:secretsmanager:us-east-1:946445279560:secret:redshift_secret_admin-llXzBH",
+            "--aws_region": "us-east-1"
+            
+        },
+        wait_for_completion= True,
+        aws_conn_id=AWS_CONN_ID,
+        verbose=True,
+        region_name = "us-east-1"
+    )
+
+
+    validate_runtime_params >> gold_to_mart >> redshift_load_gold
+
