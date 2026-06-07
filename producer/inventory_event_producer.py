@@ -1,26 +1,31 @@
 import argparse
 import json
+import logging
 import os
 import random
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import List
+from urllib.parse import urlparse
 
-
+import boto3
+from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
 from confluent_kafka import Producer
-
-from event_generator import (
-    generate_random_event_or_flow,
-    generate_chaos_event_or_flow,
-)
+from event_generator import generate_random_event_or_flow
 
 
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
 TOPIC = os.getenv("KAFKA_TOPIC", "inventory-events")
+AUTH_MODE = os.getenv("MSK_AUTH_MODE", "iam")
+AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
 CAMPAIGN_ID = os.getenv("CAMPAIGN_ID", "CAMPAIGN_FLASH_0527")
 WAREHOUSE_ID = os.getenv("WAREHOUSE_ID", "WH_HCM_01")
 
-FAILED_EVENTS_PATH = "data/lake/raw/failed_producer_events.jsonl"
+FAILED_EVENTS_S3_PATH = os.getenv(
+    "FAILED_EVENTS_S3_PATH",
+    "s3://inventory-lake-fox/bronze/failed_producer_events/",
+)
 
 SKU_IDS = [
     "SKU_IPHONE_15",
@@ -28,8 +33,26 @@ SKU_IDS = [
     "SKU_IPAD_AIR",
 ]
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-def create_kafka_producer(bootstrap_servers: str) -> Producer:
+
+def oauth_cb(_oauth_config):
+    
+
+    if not AWS_REGION:
+        raise ValueError("AWS_REGION or AWS_DEFAULT_REGION is required for IAM auth")
+
+    token, expiry_ms = MSKAuthTokenProvider.generate_auth_token(AWS_REGION)
+    return token, expiry_ms / 1000
+
+
+def create_kafka_producer(bootstrap_servers: str, auth_mode: str):
+    
+
     config = {
         "bootstrap.servers": bootstrap_servers,
         "client.id": "inventory-event-producer",
@@ -37,19 +60,28 @@ def create_kafka_producer(bootstrap_servers: str) -> Producer:
         "retries": 3,
     }
 
+    if auth_mode == "iam":
+        config.update(
+            {
+                "security.protocol": "SASL_SSL",
+                "sasl.mechanism": "OAUTHBEARER",
+                "oauth_cb": oauth_cb,
+            }
+        )
+
     return Producer(config)
 
 
 def delivery_report(err, msg) -> None:
     if err is not None:
-        print(f"[ERROR] Failed to deliver message: {err}")
+        logger.error("Failed to deliver message: %s", err)
         return
 
-    print(
-        "[OK] Delivered message "
-        f"topic={msg.topic()} "
-        f"partition={msg.partition()} "
-        f"offset={msg.offset()}"
+    logger.info(
+        "Delivered message topic=%s partition=%s offset=%s",
+        msg.topic(),
+        msg.partition(),
+        msg.offset(),
     )
 
 
@@ -62,20 +94,43 @@ def build_message_key(event: dict) -> str:
 
 
 def write_failed_event(event: dict, error_message: str) -> None:
-    os.makedirs(os.path.dirname(FAILED_EVENTS_PATH), exist_ok=True)
+    parsed_s3_path = urlparse(FAILED_EVENTS_S3_PATH)
+    if parsed_s3_path.scheme != "s3" or not parsed_s3_path.netloc:
+        raise ValueError(
+            "FAILED_EVENTS_S3_PATH must be an S3 URI, "
+            "for example s3://inventory-lake-fox/bronze/failed_producer_events/"
+        )
 
+    failed_at = datetime.now(timezone.utc)
     failed_record = {
-        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "failed_at": failed_at.isoformat(),
         "error_message": error_message,
         "event": event,
     }
 
-    with open(FAILED_EVENTS_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps(failed_record, ensure_ascii=False) + "\n")
+    key_prefix = parsed_s3_path.path.lstrip("/").rstrip("/")
+    object_key = (
+        f"{key_prefix}/date={failed_at.date().isoformat()}/"
+        f"failed_event_{uuid.uuid4().hex}.json"
+    )
+
+    s3_client = boto3.client("s3", region_name=AWS_REGION)
+    s3_client.put_object(
+        Bucket=parsed_s3_path.netloc,
+        Key=object_key,
+        Body=json.dumps(failed_record, ensure_ascii=False).encode("utf-8"),
+        ContentType="application/json",
+    )
+
+    logger.info(
+        "Wrote failed producer event to s3://%s/%s",
+        parsed_s3_path.netloc,
+        object_key,
+    )
 
 
 def send_event(
-    producer: Producer,
+    producer,
     topic: str,
     event: dict,
 ) -> None:
@@ -94,12 +149,12 @@ def send_event(
 
     except BufferError as e:
         error_message = f"Producer local queue is full: {str(e)}"
-        print(f"[ERROR] {error_message}")
+        logger.error(error_message)
         write_failed_event(event, error_message)
 
     except Exception as e:
         error_message = f"Failed to produce event: {str(e)}"
-        print(f"[ERROR] {error_message}")
+        logger.exception(error_message)
         write_failed_event(event, error_message)
 
 
@@ -110,16 +165,8 @@ def choose_random_sku() -> str:
 def generate_events_for_producer(
     campaign_id: str,
     warehouse_id: str,
-    mode: str,
 ) -> List[dict]:
     sku_id = choose_random_sku()
-
-    if mode == "chaos":
-        return generate_chaos_event_or_flow(
-            campaign_id=campaign_id,
-            sku_id=sku_id,
-            warehouse_id=warehouse_id,
-        )
 
     return generate_random_event_or_flow(
         campaign_id=campaign_id,
@@ -146,36 +193,31 @@ def main():
     )
 
     parser.add_argument(
+        "--auth-mode",
+        choices=["iam", "plaintext"],
+        default=AUTH_MODE
+    )
+
+    parser.add_argument(
         "--campaign-id",
-        default=CAMPAIGN_ID,
-        help="Campaign ID",
+        default=CAMPAIGN_ID
     )
 
     parser.add_argument(
         "--warehouse-id",
-        default=WAREHOUSE_ID,
-        help="Warehouse ID",
+        default=WAREHOUSE_ID
     )
 
     parser.add_argument(
         "--count",
         type=int,
-        default=10,
-        help="Number of random event flows to generate",
+        default=10
     )
 
     parser.add_argument(
         "--interval-seconds",
         type=float,
-        default=1.0,
-        help="Delay between events",
-    )
-
-    parser.add_argument(
-        "--mode",
-        choices=["normal", "chaos"],
-        default="normal",
-        help="Producer mode. Use normal for MVP, chaos for future robustness tests.",
+        default=1.0
     )
 
     args = parser.parse_args()
@@ -183,17 +225,19 @@ def main():
     if not args.bootstrap_servers:
         raise ValueError("KAFKA_BOOTSTRAP_SERVERS or --bootstrap-servers is required")
 
-    producer = create_kafka_producer(args.bootstrap_servers)
+    producer = create_kafka_producer(args.bootstrap_servers, args.auth_mode)
 
-    print(
-        f"Starting inventory event producer "
-        f"bootstrap_servers={args.bootstrap_servers}, "
-        f"topic={args.topic}, "
-        f"campaign_id={args.campaign_id}, "
-        f"warehouse_id={args.warehouse_id}, "
-        f"count={args.count}, "
-        f"interval_seconds={args.interval_seconds}, "
-        f"mode={args.mode}"
+    logger.info(
+        "Starting inventory event producer bootstrap_servers=%s topic=%s "
+        "auth_mode=%s campaign_id=%s warehouse_id=%s count=%s "
+        "interval_seconds=%s",
+        args.bootstrap_servers,
+        args.topic,
+        args.auth_mode,
+        args.campaign_id,
+        args.warehouse_id,
+        args.count,
+        args.interval_seconds,
     )
 
     try:
@@ -202,12 +246,13 @@ def main():
                 events = generate_events_for_producer(
                     campaign_id=args.campaign_id,
                     warehouse_id=args.warehouse_id,
-                    mode=args.mode,
                 )
 
-                print(
-                    f"[FLOW {i + 1}/{args.count}] "
-                    f"Generated {len(events)} event(s)"
+                logger.info(
+                    "Generated flow %s/%s with %s event(s)",
+                    i + 1,
+                    args.count,
+                    len(events),
                 )
 
                 for event_index, event in enumerate(events, start=1):
@@ -217,25 +262,28 @@ def main():
                         event=event,
                     )
 
-                    print(
-                        f"[FLOW {i + 1}/{args.count} | "
-                        f"EVENT {event_index}/{len(events)}] Sent event: "
-                        f"{json.dumps(event, ensure_ascii=False)}"
+                    logger.info(
+                        "Queued event flow=%s/%s event=%s/%s payload=%s",
+                        i + 1,
+                        args.count,
+                        event_index,
+                        len(events),
+                        json.dumps(event, ensure_ascii=False),
                     )
 
                     time.sleep(args.interval_seconds)
 
             except Exception as e:
-                print(f"[ERROR] Failed at flow index {i + 1}: {str(e)}")
+                logger.exception("Failed at flow index %s: %s", i + 1, str(e))
                 continue
 
     except KeyboardInterrupt:
-        print("Producer stopped by user.")
+        logger.info("Producer stopped by user.")
 
     finally:
-        print("Flushing producer...")
+        logger.info("Flushing producer...")
         producer.flush()
-        print("Done.")
+        logger.info("Done.")
 
 
 if __name__ == "__main__":

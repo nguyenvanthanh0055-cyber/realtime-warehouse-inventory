@@ -1,12 +1,18 @@
+import logging
 import os
 from pathlib import Path
-from datetime import datetime
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -307,13 +313,8 @@ def write_opening_snapshot(
 
 
 def main():
-
-    # BUSINESS_TIMEZONE = os.getenv("BUSINESS_TIMEZONE", "Asia/Ho_Chi_Minh")
-
-    print("os: ", os.getenv("CAMPAIGN_ID"))
     campaign_id = os.getenv("CAMPAIGN_ID")
     snapshot_date = os.getenv("SNAPSHOT_DATE")
-    # snapshot_date = datetime.now().strftime("%Y-%m-%d")
 
     if not campaign_id:
         raise ValueError("CAMPAIGN_ID is required. Example: CAMPAIGN_ID=CAMPAIGN_FLASH_0427")
@@ -321,11 +322,11 @@ def main():
     if not snapshot_date:
         raise ValueError("SNAPSHOT_DATE is required. Example: SNAPSHOT_DATE=2026-04-27")
 
-    print("Starting campaign initialization...")
-    print(f"Campaign ID: {campaign_id}")
-    print(f"Snapshot date: {snapshot_date}")
-    print(f"Initial inventory path: {INITIAL_INVENTORY_PATH}")
-    print(f"Promotion config path: {PROMOTION_CONFIG_PATH}")
+    logger.info("Starting campaign initialization")
+    logger.info("Campaign ID: %s", campaign_id)
+    logger.info("Snapshot date: %s", snapshot_date)
+    logger.info("Initial inventory path: %s", INITIAL_INVENTORY_PATH)
+    logger.info("Promotion config path: %s", PROMOTION_CONFIG_PATH)
 
     inventory_df_all = pd.read_csv(INITIAL_INVENTORY_PATH)
     promotion_df_all = pd.read_csv(PROMOTION_CONFIG_PATH)
@@ -354,10 +355,10 @@ def main():
         campaign_id=campaign_id,
     )
 
-    print("Campaign initialization completed.")
-    print(f"Seeded current_inventory rows: {len(inventory_df)}")
-    print(f"Seeded promotion_metrics rows: {len(promotion_df)}")
-    print(f"Opening snapshot written to: {snapshot_path}")
+    logger.info("Campaign initialization completed")
+    logger.info("Seeded current_inventory rows: %s", len(inventory_df))
+    logger.info("Seeded promotion_metrics rows: %s", len(promotion_df))
+    logger.info("Opening snapshot written to: %s", snapshot_path)
 
 
 if __name__ == "__main__":

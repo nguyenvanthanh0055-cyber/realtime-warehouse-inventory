@@ -1,4 +1,5 @@
 import argparse
+import logging
 
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
@@ -11,6 +12,12 @@ from pyspark.sql.functions import (
     count,
     when
 )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 def build_spark() -> SparkSession:
@@ -312,8 +319,8 @@ def write_gold_outputs(
     .partitionBy("summary_date", "campaign_id") \
     .parquet(daily_summary_path)
 
-    print(f"[GOLD] Wrote reconciliation to: {reconciliation_path}")
-    print(f"[GOLD] Wrote daily summary to: {daily_summary_path}")
+    logger.info("[GOLD] Wrote reconciliation to: %s", reconciliation_path)
+    logger.info("[GOLD] Wrote daily summary to: %s", daily_summary_path)
 
 
 def parse_args() -> argparse.Namespace:
@@ -408,7 +415,7 @@ def main():
         lake_root=args.lake_root
     )
 
-    print("Completed daily reconciliation")
+    logger.info("Completed daily reconciliation")
 
 if __name__ == "__main__":
     main()

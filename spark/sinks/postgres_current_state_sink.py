@@ -1,8 +1,13 @@
+import logging
 from datetime import timezone
 from typing import Dict, Any
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from spark.common.postgres_config import load_postgres_config
+
+logger = logging.getLogger(__name__)
+
+# Local dev/test sink only. The cloud current-state path uses DynamoDB.
 
 
 def as_utc_aware(value):
@@ -325,10 +330,10 @@ def handle_invalid_event(cursor, event: Dict[str, Any])-> None:
 def process_event(cursor, event: Dict[str, Any]) -> None:
 
     if not event.get("event_id"):
-        print(
-            f"[INVALID PARSE] Missing event_id"
-            f"kafka_offset={event.get('kafka_offset')}"
-            f"json_value={event.get('json_value')}"
+        logger.warning(
+            "Invalid parse missing event_id kafka_offset=%s json_value=%s",
+            event.get("kafka_offset"),
+            event.get("json_value"),
         )
         insert_inventory_alert(
             cursor=cursor,
@@ -349,30 +354,30 @@ def process_event(cursor, event: Dict[str, Any]) -> None:
     is_new_event = insert_processed_event(cursor=cursor,event=event)
 
     if not is_new_event:
-        print(f"[SKIP] Duplicate event_id={event['event_id']}")
+        logger.info("Skipping duplicate event_id=%s", event["event_id"])
         return
 
     if not event.get("is_valid_event"):
         handle_invalid_event(cursor, event)
-        print(f"[INVALID] event_id={event['event_id']}")
+        logger.info("Handled invalid event_id=%s", event["event_id"])
         return
     
 
     update_current_inventory(cursor, event)
     update_promotion_metrics(cursor, event)
 
-    print(
-        "[PROCESSED]"
-        f"event_id={event['event_id']} "
-        f"event_type={event['event_type']} "
-        f"sku_id={event['sku_id']} "
-        f"warehouse_id={event['warehouse_id']}"
-        )
+    logger.info(
+        "Processed event_id=%s event_type=%s sku_id=%s warehouse_id=%s",
+        event["event_id"],
+        event["event_type"],
+        event["sku_id"],
+        event["warehouse_id"],
+    )
 
 
 def write_batch_to_postgres_foreach_partition(batch_df, batch_id: int) -> None:
     if batch_df.isEmpty():
-        print(f"[BATCH {batch_id}] Empty")
+        logger.info("Batch %s empty", batch_id)
         return
 
     config = load_postgres_config()
@@ -416,15 +421,16 @@ def write_batch_to_postgres_foreach_partition(batch_df, batch_id: int) -> None:
                     processed_count += 1
 
             conn.commit()
-            print(
-                f"[BATCH {batch_id}] Partition commit successful. "
-                f"Processed {processed_count} events"
+            logger.info(
+                "Batch %s partition commit successful processed_events=%s",
+                batch_id,
+                processed_count,
             )
 
         except Exception as e:
             if conn is not None:
                 conn.rollback()
-            print(f"[BATCH {batch_id}] Partition failed. Rolled back. Error: {e}")
+            logger.exception("Batch %s partition failed and rolled back", batch_id)
             raise
 
         finally:

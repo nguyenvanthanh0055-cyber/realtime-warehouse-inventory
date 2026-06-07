@@ -624,29 +624,6 @@ def generate_random_event_or_flow(
     raise ValueError(f"Unsupported flow_type: {flow_type}")
 
 
-def generate_chaos_event_or_flow(
-    campaign_id: str,
-    sku_id: str,
-    warehouse_id: str,
-) -> List[Dict[str, Any]]:
-    """
-    Chaos mode skeleton.
-
-    Hiện tại vẫn sinh normal flow để không làm rối Phase 5.
-    Sau Phase 6/7 có thể nâng cấp:
-    - duplicate event
-    - out-of-order event
-    - late event
-    - invalid event
-    - conflict event
-    """
-    return generate_random_event_or_flow(
-        campaign_id=campaign_id,
-        sku_id=sku_id,
-        warehouse_id=warehouse_id,
-    )
-
-
 def print_events(events: List[Dict[str, Any]]) -> None:
     for event in events:
         print(json.dumps(event, ensure_ascii=False))
@@ -679,12 +656,6 @@ def main():
         "--payment-method",
         choices=PAYMENT_METHODS,
         required=False,
-    )
-
-    parser.add_argument(
-        "--mode",
-        choices=["normal", "chaos"],
-        default="normal",
     )
 
     parser.add_argument("--quantity", type=int, required=False)
@@ -776,18 +747,11 @@ def main():
             ]
 
         else:
-            if args.mode == "chaos":
-                events = generate_chaos_event_or_flow(
-                    campaign_id=args.campaign_id,
-                    sku_id=args.sku_id,
-                    warehouse_id=args.warehouse_id,
-                )
-            else:
-                events = generate_random_event_or_flow(
-                    campaign_id=args.campaign_id,
-                    sku_id=args.sku_id,
-                    warehouse_id=args.warehouse_id,
-                )
+            events = generate_random_event_or_flow(
+                campaign_id=args.campaign_id,
+                sku_id=args.sku_id,
+                warehouse_id=args.warehouse_id,
+            )
 
         print_events(events)
 

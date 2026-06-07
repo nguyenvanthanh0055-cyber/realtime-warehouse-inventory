@@ -4,14 +4,9 @@ TOPIC_NAME="${KAFKA_TOPIC:-inventory-events}"
 BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS}"
 
 kafka-topics.sh \
-  --bootstrap-server "$BOOTSTRAP_SERVERS" \
+  --bootstrap-server "$KAFKA_BOOTSTRAP_SERVERS" \
+  --command-config client.properties \
   --create \
   --if-not-exists \
-  --topic "$TOPIC_NAME" \
-  --partitions 3 \
-  --replication-factor 2
-
-kafka-topics.sh \
-  --bootstrap-server "$BOOTSTRAP_SERVERS" \
-  --describe \
-  --topic "$TOPIC_NAME"
+  --topic "$KAFKA_TOPIC" \
+  --partitions 3
