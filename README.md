@@ -1,49 +1,22 @@
-## Local Architecture
+# Real-time Warehouse Inventory Monitoring
 
-```text
-Mock Order Service / Python Producer
-        |
-        v
-Kafka Docker Topic: inventory-events
-        |
-        v
-Spark Structured Streaming
-        |
-        |-- Parse JSON events
-        |-- Validate business rules
-        |-- Derive movement_qty
-        |-- Detect invalid events
-        |
-        v
-PostgreSQL Local
-        |
-        |-- current_inventory
-        |-- processed_events
-        |-- inventory_alerts
-        |-- promotion_metrics
-        |-- sales_velocity_window
-        |
-        v
-Streamlit Dashboard / SQL Debug Queries
+Cloud-first real-time inventory monitoring project for a flash-sale warehouse
+scenario. The main architecture is AWS-based; the local stack is kept as a
+dev/test harness so the streaming logic can be validated cheaply.
 
-
-
-Và AWS:
-
-```markdown
-## Target AWS Architecture
+## Cloud Main Architecture
 
 ```text
 Producer / Mock Order Service
         |
         v
-Amazon MSK
+Amazon MSK Provisioned with IAM auth
         |
         v
-AWS Glue Streaming / EMR Serverless Spark
+AWS Glue Spark Structured Streaming
         |
         |-- Bronze/Silver writes
-        |-- Current state update
+        |-- Current-state updates
         |-- Alert detection
         |
         +-----------------------> DynamoDB
@@ -59,45 +32,47 @@ AWS Glue Streaming / EMR Serverless Spark
 MWAA Daily Batch Orchestration
         |
         v
-Glue Batch / EMR Serverless
-        |
-        v
-Redshift Serverless
+Glue Batch / Redshift Serverless
         |
         v
 BI Dashboard / Reporting Views
+```
 
-## Implementation Phases
+Cloud details:
 
-### Phase 0 — Project Setup
-Initialize project structure, Python environment, Docker Compose, and development conventions.
+- Main streaming job: `spark/streaming_inventory_job.py`
+- Cloud current-state sink: `aws/glue/dynamodb_current_state_sink.py`
+- Glue runbook: `aws/glue/msk_streaming_glue_runbook.md`
+- Current inventory state history path:
+  `s3://inventory-lake-fox/silver/current_inventory_state_history/`
 
-### Phase 1 — Local Infrastructure
-Set up Kafka and PostgreSQL using Docker Compose.
+## Local Dev/Test Harness
 
-### Phase 2 — Campaign Initialization
-Seed campaign-level sellable inventory and promotion quota using input CSV files.
+Local is intentionally separate from the cloud story. It is used for fast
+development and smoke testing.
 
-### Phase 3 — Inventory Event Generation
-Generate realistic inventory lifecycle events such as stock reservation, payment confirmation, cancellation, expiration, return, and replenishment.
+```text
+Python Producer
+        |
+        v
+Local Kafka / Docker Kafka
+        |
+        v
+Spark Structured Streaming
+        |
+        +-- PostgreSQL local current-state tables
+        +-- data/lake local Bronze/Silver folders
+```
 
-### Phase 4 — Kafka Producer
-Publish inventory events to Kafka with campaign/SKU/warehouse-based message keys.
+Local-only pieces:
 
-### Phase 5 — Spark Structured Streaming Parser
-Consume Kafka events, parse JSON payloads, validate event schema, derive movement quantity, and enrich events with partition columns.
+- `docker-compose.yml`
+- `scripts/init_campaign.py`
+- `spark/sinks/postgres_current_state_sink.py`
+- `batch/daily_reconciliation_job.py`
 
-### Phase 6 — Real-time Current State Update
-Update PostgreSQL current inventory state using Spark `foreachBatch`, with idempotency handled by `processed_events`.
+See:
 
-### Phase 7 — Streaming Data Lake Writes
-Write Bronze and Silver streaming outputs to local S3-like data lake folders.
+- `docs/cloud_main_path.md`
+- `docs/local_dev_test_path.md`
 
-### Phase 8 — Daily Batch Reconciliation
-Recompute daily inventory state from raw events and compare it with streaming current state.
-
-### Phase 9 — Analytics Mart and Dashboard
-Build reporting tables/views and dashboard for inventory, promotion, alerts, velocity, and reconciliation.
-
-### Phase 10 — AWS Deployment Mapping
-Map local services to AWS managed services such as MSK, Glue/EMR Serverless, DynamoDB, S3, Athena, MWAA, Redshift Serverless, and CloudWatch.
