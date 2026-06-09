@@ -20,13 +20,6 @@ x-airflow-common: &airflow-common
 
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
 
-    # App DB env để DAG hoặc app dùng được
-    INVENTORY_DB_HOST: postgres
-    INVENTORY_DB_PORT: 5432
-    INVENTORY_DB_NAME: ${POSTGRES_DB:-inventory_db}
-    INVENTORY_DB_USER: ${POSTGRES_USER:-inventory_user}
-    INVENTORY_DB_PASSWORD: ${POSTGRES_PASSWORD:-inventory_password}
-
     KAFKA_BOOTSTRAP_SERVERS: kafka:29092
 
   volumes:
@@ -86,24 +79,6 @@ services:
       timeout: 10s
       retries: 20
       start_period: 30s
-
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-inventory_db}
-      POSTGRES_USER: ${POSTGRES_USER:-inventory_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-inventory_password}
-    volumes:
-      - inventory_postgres_data:/var/lib/postgresql/data
-      - ./sql:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-inventory_user} -d ${POSTGRES_DB:-inventory_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
   airflow-postgres:
     image: postgres:16-alpine
@@ -229,5 +204,4 @@ services:
         condition: service_completed_successfully
 
 volumes:
-  inventory_postgres_data:
   airflow_postgres_data:
