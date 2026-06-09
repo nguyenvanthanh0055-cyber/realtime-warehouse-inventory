@@ -1,8 +1,9 @@
 #!/bin/bash
 
 TOPIC_NAME="${KAFKA_TOPIC:-inventory-events}"
-BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:?KAFKA_BOOTSTRAP_SERVERS is required}"
+BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS}"
 CLIENT_CONFIG="${CLIENT_CONFIG:-$HOME/msk-config/client.properties}"
+
 
 kafka-topics.sh \
   --bootstrap-server "$KAFKA_BOOTSTRAP_SERVERS" \

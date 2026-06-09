@@ -6,7 +6,11 @@ from pyspark.sql.functions import col, from_json
 from aws.glue.dynamodb_current_state_sink import write_batch_to_dynamodb
 from spark.common.schemas import inventory_event_schema
 from spark.common.transformations import transform_inventory_events
+from aws.glue.dynamodb_sales_velocity_sink import (
+    write_batch_sales_velocity_5m_to_dynamodb,
+    )
 from spark.sinks.lake_sink import (
+    build_sales_velocity_5m_df,
     write_bronze_raw_inventory_events,
     write_silver_inventory_movements,
     write_silver_invalid_events,
@@ -89,27 +93,25 @@ def parse_kafka_events(kafka_df):
     )
 
 
-# def write_to_postgres(df, checkpoint_location: str):
-#     from spark.sinks.postgres_current_state_sink import (
-#         write_batch_to_postgres_foreach_partition,
-#     )
-
-#     return (
-#         df.writeStream
-#         .foreachBatch(write_batch_to_postgres_foreach_partition)
-#         .outputMode("update")
-#         .option("checkpointLocation", checkpoint_location)
-#         .trigger(processingTime="15 seconds")
-#         .start()
-#     )
-
-
 def write_to_dynamodb(df, checkpoint_location: str):
-    
-
     return (
         df.writeStream
         .foreachBatch(write_batch_to_dynamodb)
+        .outputMode("update")
+        .option("checkpointLocation", checkpoint_location)
+        .trigger(processingTime="15 seconds")
+        .start()
+    )
+
+
+def write_sales_velocity_to_dynamodb(df, checkpoint_location: str):
+
+
+    velocity_df = build_sales_velocity_5m_df(df)
+
+    return (
+        velocity_df.writeStream
+        .foreachBatch(write_batch_sales_velocity_5m_to_dynamodb)
         .outputMode("update")
         .option("checkpointLocation", checkpoint_location)
         .trigger(processingTime="15 seconds")
@@ -140,15 +142,7 @@ def main():
     topic = os.getenv("KAFKA_TOPIC", "inventory-events")
     auth_mode = os.getenv("MSK_AUTH_MODE", "iam")
     starting_offsets = os.getenv("KAFKA_STARTING_OFFSETS", "latest")
-    enable_dynamodb_sink = (
-        os.getenv("ENABLE_DYNAMODB_SINK", "false").lower() == "true"
-    )
-    enable_postgres_sink = os.getenv("ENABLE_POSTGRES_SINK", "false").lower() == "true"
-
-    enable_sales_velocity_sink = (
-        os.getenv("ENABLE_SALES_VELOCITY_SINK", "true").lower() == "true"
-    )
-
+    
     parser = argparse.ArgumentParser(
         description="Spark Structured Streaming job for inventory events"
     )
@@ -156,7 +150,6 @@ def main():
     parser.add_argument(
         "--bootstrap-servers",
         default=bootstrap_servers,
-        help="Kafka/MSK bootstrap servers",
     )
 
     parser.add_argument(
@@ -168,61 +161,30 @@ def main():
         "--auth-mode",
         choices=["iam", "plaintext"],
         default=auth_mode,
-        help="Kafka auth mode. Use iam for MSK IAM listeners on port 9098.",
     )
 
     parser.add_argument(
         "--starting-offsets",
         choices=["earliest", "latest"],
         default=starting_offsets,
-        help="Kafka starting offsets for a new checkpoint.",
     )
 
     parser.add_argument(
         "--lake-root",
         default=os.getenv("LAKE_ROOT"),
-        help="S3/local root for Bronze/Silver outputs, for example s3://bucket/lake.",
     )
 
     parser.add_argument(
         "--checkpoint-root",
         default=os.getenv("STREAMING_CHECKPOINT_ROOT"),
-        help="S3/local root for streaming checkpoints.",
     )
 
     parser.add_argument(
         "--kafka-tcp-check-timeout-seconds",
         type=int,
         default=int(os.getenv("KAFKA_TCP_CHECK_TIMEOUT_SECONDS", "10")),
-        help="Timeout for the optional Kafka TCP connectivity check.",
     )
 
-    parser.add_argument(
-        "--enable-postgres-sink",
-        nargs="?",
-        const=True,
-        type=parse_bool,
-        default=enable_postgres_sink,
-        help="Enable the local/Postgres current-state sink.",
-    )
-
-    parser.add_argument(
-        "--enable-dynamodb-sink",
-        nargs="?",
-        const=True,
-        type=parse_bool,
-        default=enable_dynamodb_sink,
-        help="Enable the cloud/DynamoDB current-state sink.",
-    )
-
-    parser.add_argument(
-        "--enable-sales-velocity-sink",
-        nargs="?",
-        const=True,
-        type=parse_bool,
-        default=enable_sales_velocity_sink,
-        help="Enable the stateful 5-minute sales velocity sink.",
-    )
 
     args, _unknown_args = parser.parse_known_args()
 
@@ -283,39 +245,26 @@ def main():
         col("timestamp").alias("kafka_timestamp"),
     )
 
-    # postgres_query = None
-    # if args.enable_postgres_sink:
-    #     postgres_query = write_to_postgres(
-    #         df=output_df,
-    #         checkpoint_location="data/checkpoints/postgres_current_state",
-    #     )
-
-    dynamodb_query = None
-    if args.enable_dynamodb_sink:
-        checkpoint_root = args.checkpoint_root or os.getenv("STREAMING_CHECKPOINT_ROOT")
-        if not checkpoint_root:
-            raise ValueError(
-                "STREAMING_CHECKPOINT_ROOT or --checkpoint-root is required "
-                "when --enable-dynamodb-sink is true"
-            )
-
-        dynamodb_query = write_to_dynamodb(
-            df=output_df,
-            checkpoint_location=f"{checkpoint_root.rstrip('/')}/dynamodb_current_state",
-        )
+    checkpoint_root = args.checkpoint_root or os.getenv("STREAMING_CHECKPOINT_ROOT")
+    dynamodb_query = write_to_dynamodb(
+        df=output_df,
+        checkpoint_location=f"{checkpoint_root.rstrip('/')}/dynamodb_current_state"
+    )
 
     bronze_query = write_bronze_raw_inventory_events(output_df)
     silver_movements_query = write_silver_inventory_movements(output_df)
     silver_invalid_query = write_silver_invalid_events(output_df)
-    silver_sales_velocity_query = None
-    if args.enable_sales_velocity_sink:
-        silver_sales_velocity_query = write_silver_sales_velocity_5m(output_df)
+
+    silver_sales_velocity_query = write_silver_sales_velocity_5m(output_df)
+
+    sales_velocity_dynamodb_query = write_sales_velocity_to_dynamodb(
+        df=output_df,
+        checkpoint_location=(
+            f"{checkpoint_root.rstrip('/')}/dynamodb_sales_velocity_5m"
+        ),
+    )
 
     logger.info("Streaming queries started")
-    # if postgres_query:
-    #     logger.info("Postgres current state query_id=%s", postgres_query.id)
-    # else:
-    #     logger.info("Postgres current state disabled")
 
     if dynamodb_query:
         logger.info("DynamoDB current state query_id=%s", dynamodb_query.id)
@@ -333,6 +282,14 @@ def main():
         )
     else:
         logger.info("Silver sales velocity 5m disabled")
+
+    if sales_velocity_dynamodb_query:
+        logger.info(
+            "DynamoDB sales velocity 5m query_id=%s",
+            sales_velocity_dynamodb_query.id,
+        )
+    else:
+        logger.info("DynamoDB sales velocity 5m disabled")
 
     spark.streams.awaitAnyTermination()
 

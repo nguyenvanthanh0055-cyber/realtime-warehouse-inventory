@@ -464,7 +464,7 @@ def write_state_history_to_s3(
         .write
         .mode("append")
         .format("parquet")
-        .partitionBy("business_date")
+        .partitionBy("business_date", "campaign_id")
         .save(output_path)
     )
 

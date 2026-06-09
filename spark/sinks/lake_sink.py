@@ -12,6 +12,47 @@ from pyspark.sql.functions import (
 
 from spark.common.lake_config import load_lake_config
 
+
+def build_sales_velocity_5m_df(df: DataFrame) -> DataFrame:
+    sales_events_df = (
+        df.filter(col("is_valid_event") == lit(True))
+        .filter(col("event_type").isin("STOCK_RESERVED", "COD_CONFIRMED"))
+        .filter(col("business_timestamp").isNotNull())
+        .filter(col("quantity").isNotNull())
+        .filter(col("quantity") > lit(0))
+    )
+
+    return (
+        sales_events_df
+        .withWatermark("business_timestamp", "10 minutes")
+        .groupBy(
+            window(col("business_timestamp"), "5 minutes"),
+            col("campaign_id"),
+            col("sku_id"),
+            col("warehouse_id"),
+            col("promotion_id")
+        )
+        .agg(
+            count("order_id").alias("order_count"),
+            sum("quantity").alias("sold_qty")
+        )
+        .select(
+            col("campaign_id"),
+            col("sku_id"),
+            col("warehouse_id"),
+            col("promotion_id"),
+            col("window.start").alias("window_start"),
+            col("window.end").alias("window_end"),
+            lit(5).alias("window_size_minutes"),
+            col("order_count"),
+            col("sold_qty")
+        )
+        .withColumn("window_date", to_date(col("window_start")))
+        .withColumn("window_hour", hour(col("window_start")))
+        .withColumn("silver_processed_at", current_timestamp())
+    )
+
+
 def write_bronze_raw_inventory_events(df: DataFrame):
     config = load_lake_config()
 
@@ -131,44 +172,7 @@ def write_silver_invalid_events(df: DataFrame):
 def write_silver_sales_velocity_5m(df: DataFrame):
     
     config = load_lake_config()
-
-    sales_events_df = (
-        df.filter(col("is_valid_event") == lit(True))
-        .filter(col("event_type").isin("STOCK_RESERVED", "COD_CONFIRMED"))
-        .filter(col("business_timestamp").isNotNull())
-        .filter(col("quantity").isNotNull())
-        .filter(col("quantity") > lit(0))
-    )
-
-    velocity_df = (
-        sales_events_df
-        .withWatermark("business_timestamp", "10 minutes")
-        .groupBy(
-            window(col("business_timestamp"), "5 minutes"),
-            col("campaign_id"),
-            col("sku_id"),
-            col("warehouse_id"),
-            col("promotion_id")
-        )
-        .agg(
-            count("order_id").alias("order_count"),
-            sum("quantity").alias("sold_qty")
-        )
-        .select(
-            col("campaign_id"),
-            col("sku_id"),
-            col("warehouse_id"),
-            col("promotion_id"),
-            col("window.start").alias("window_start"),
-            col("window.end").alias("window_end"),
-            lit(5).alias("window_size_minutes"),
-            col("order_count"),
-            col("sold_qty")
-        )
-        .withColumn("window_date", to_date(col("window_start")))
-        .withColumn("window_hour", hour(col("window_start")))
-        .withColumn("silver_processed_at", current_timestamp())
-    )
+    velocity_df = build_sales_velocity_5m_df(df)
 
     return (
         velocity_df.writeStream

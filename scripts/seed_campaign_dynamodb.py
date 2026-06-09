@@ -13,8 +13,6 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
 CURRENT_INVENTORY_TABLE = os.getenv(
     "DDB_CURRENT_INVENTORY_TABLE",
     "inventory_current_state",
@@ -22,6 +20,10 @@ CURRENT_INVENTORY_TABLE = os.getenv(
 PROMOTION_METRICS_TABLE = os.getenv(
     "DDB_PROMOTION_METRICS_TABLE",
     "inventory_promotion_metrics",
+)
+DEFAULT_SNAPSHOT_ROOT = os.getenv(
+    "INVENTORY_SNAPSHOT_ROOT",
+    "s3://inventory-lake-fox/snapshots/inventory_snapshot",
 )
 
 
@@ -74,7 +76,7 @@ def seed_current_inventory(
     table,
     campaign_id: str,
     initial_inventory_uri: str,
-    region: str | None = None,
+    region: str,
 ) -> int:
     seeded_count = 0
     now = utc_now_iso()
@@ -109,7 +111,7 @@ def seed_promotion_metrics(
     table,
     campaign_id: str,
     promotion_config_uri: str,
-    region: str | None = None,
+    region: str,
 ) -> int:
     seeded_count = 0
     now = utc_now_iso()
@@ -142,6 +144,77 @@ def seed_promotion_metrics(
     return seeded_count
 
 
+def write_opening_snapshot(
+    campaign_id: str,
+    snapshot_date: str,
+    initial_inventory_uri: str,
+    snapshot_root: str,
+    region: str,
+) -> int:
+    snapshot_bucket, snapshot_prefix = parse_s3_uri(snapshot_root)
+    snapshot_key = (
+        f"{snapshot_prefix.rstrip('/')}/"
+        f"snapshot_date={snapshot_date}/"
+        f"campaign_id={campaign_id}/"
+        "inventory_snapshot.csv"
+    )
+
+    output = io.StringIO()
+    fieldnames = [
+        "snapshot_date",
+        "campaign_id",
+        "sku_id",
+        "warehouse_id",
+        "product_name",
+        "opening_sellable_stock",
+        "low_stock_threshold",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+
+    snapshot_count = 0
+    for row in read_csv_rows(initial_inventory_uri, region=region):
+        if row["campaign_id"] != campaign_id:
+            continue
+
+        writer.writerow(
+            {
+                "snapshot_date": snapshot_date,
+                "campaign_id": row["campaign_id"],
+                "sku_id": row["sku_id"],
+                "warehouse_id": row["warehouse_id"],
+                "product_name": row["product_name"],
+                "opening_sellable_stock": row["initial_sellable_stock"],
+                "low_stock_threshold": row["low_stock_threshold"],
+            }
+        )
+        snapshot_count += 1
+
+    if snapshot_count == 0:
+        logger.warning(
+            "No opening snapshot rows were written for campaign_id=%s from %s",
+            campaign_id,
+            initial_inventory_uri,
+        )
+        return 0
+
+    s3 = boto3.client("s3", region_name=region)
+    s3.put_object(
+        Bucket=snapshot_bucket,
+        Key=snapshot_key,
+        Body=output.getvalue().encode("utf-8"),
+        ContentType="text/csv",
+    )
+    logger.info(
+        "Wrote opening snapshot rows=%s to s3://%s/%s",
+        snapshot_count,
+        snapshot_bucket,
+        snapshot_key,
+    )
+
+    return snapshot_count
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Seed DynamoDB current inventory and promotion metrics tables."
@@ -167,6 +240,20 @@ def parse_args() -> argparse.Namespace:
             "s3://inventory-lake-fox/config/campaign/promotion_config.csv",
         ),
         help="S3 URI for promotion_config.csv.",
+    )
+    parser.add_argument(
+        "--snapshot-date",
+        default=os.getenv("SNAPSHOT_DATE"),
+        required=os.getenv("SNAPSHOT_DATE") is None,
+        help="Opening snapshot date in yyyy-mm-dd format, usually the campaign start date.",
+    )
+    parser.add_argument(
+        "--snapshot-root",
+        default=DEFAULT_SNAPSHOT_ROOT,
+        help=(
+            "S3 root for inventory snapshots. The script writes "
+            "snapshot_date=<date>/campaign_id=<id>/inventory_snapshot.csv under it."
+        ),
     )
     parser.add_argument(
         "--region",
@@ -199,6 +286,13 @@ def main() -> None:
         promotion_config_uri=args.promotion_config_uri,
         region=args.region,
     )
+    snapshot_count = write_opening_snapshot(
+        campaign_id=args.campaign_id,
+        snapshot_date=args.snapshot_date,
+        initial_inventory_uri=args.initial_inventory_uri,
+        snapshot_root=args.snapshot_root,
+        region=args.region,
+    )
 
     if inventory_count == 0:
         logger.warning(
@@ -215,10 +309,14 @@ def main() -> None:
         )
 
     logger.info(
-        "Seeded DynamoDB campaign_id=%s current_inventory_items=%s promotion_items=%s",
+        (
+            "Seeded campaign_id=%s current_inventory_items=%s "
+            "promotion_items=%s opening_snapshot_rows=%s"
+        ),
         args.campaign_id,
         inventory_count,
         promotion_count,
+        snapshot_count,
     )
 
 

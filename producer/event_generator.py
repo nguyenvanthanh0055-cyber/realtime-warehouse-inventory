@@ -1,9 +1,12 @@
 import argparse
 import json
+import logging
 import random
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
+
+logger = logging.getLogger(__name__)
 
 
 EVENT_TYPES = [
@@ -626,10 +629,15 @@ def generate_random_event_or_flow(
 
 def print_events(events: List[Dict[str, Any]]) -> None:
     for event in events:
-        print(json.dumps(event, ensure_ascii=False))
+        logger.info(json.dumps(event, ensure_ascii=False))
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    )
+
     parser = argparse.ArgumentParser(
         description="Generate mock inventory events"
     )

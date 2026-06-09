@@ -1,4 +1,6 @@
 import argparse
+import csv
+import io
 import json
 import logging
 import os
@@ -6,12 +8,11 @@ import random
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import List
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import boto3
-from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
-from confluent_kafka import Producer
 from event_generator import generate_random_event_or_flow
 
 
@@ -26,6 +27,7 @@ FAILED_EVENTS_S3_PATH = os.getenv(
     "FAILED_EVENTS_S3_PATH",
     "s3://inventory-lake-fox/bronze/failed_producer_events/",
 )
+PROMOTION_CONFIG_URI = os.getenv("PROMOTION_CONFIG_URI")
 
 SKU_IDS = [
     "SKU_IPHONE_15",
@@ -41,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 def oauth_cb(_oauth_config):
-    
+    from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
 
     if not AWS_REGION:
         raise ValueError("AWS_REGION or AWS_DEFAULT_REGION is required for IAM auth")
@@ -51,7 +53,7 @@ def oauth_cb(_oauth_config):
 
 
 def create_kafka_producer(bootstrap_servers: str, auth_mode: str):
-    
+    from confluent_kafka import Producer
 
     config = {
         "bootstrap.servers": bootstrap_servers,
@@ -91,6 +93,129 @@ def build_message_key(event: dict) -> str:
         f"{event['sku_id']}|"
         f"{event['warehouse_id']}"
     )
+
+
+def parse_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def parse_s3_uri(s3_uri: str) -> Tuple[str, str]:
+    parsed_uri = urlparse(s3_uri)
+    if parsed_uri.scheme != "s3" or not parsed_uri.netloc or not parsed_uri.path:
+        raise ValueError(f"Invalid S3 URI: {s3_uri}")
+
+    return parsed_uri.netloc, parsed_uri.path.lstrip("/")
+
+
+def read_text_from_uri(uri: str) -> str:
+    parsed_uri = urlparse(uri)
+    if parsed_uri.scheme == "s3":
+        bucket, key = parse_s3_uri(uri)
+        s3_client = boto3.client("s3", region_name=AWS_REGION)
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        return response["Body"].read().decode("utf-8")
+
+    return Path(uri).read_text(encoding="utf-8")
+
+
+def load_promotion_config(
+    promotion_config_uri: Optional[str],
+) -> Dict[Tuple[str, str, str, str], dict]:
+    if not promotion_config_uri:
+        raise ValueError(
+            "PROMOTION_CONFIG_URI or --promotion-config-uri is required. "
+            "The producer needs promotion_config.csv to enforce flash-sale windows."
+        )
+
+    content = read_text_from_uri(promotion_config_uri)
+    promotions = {}
+
+    for row in csv.DictReader(io.StringIO(content)):
+        key = (
+            row["campaign_id"],
+            row["promotion_id"],
+            row["sku_id"],
+            row["warehouse_id"],
+        )
+        promotions[key] = {
+            "start_time": parse_timestamp(row["start_time"]),
+            "end_time": parse_timestamp(row["end_time"]),
+            "normal_price": int(row["normal_price"]),
+            "sale_price": int(row["sale_price"]),
+        }
+
+    logger.info(
+        "Loaded promotion config rows=%s uri=%s",
+        len(promotions),
+        promotion_config_uri,
+    )
+    if not promotions:
+        raise ValueError(f"No promotion rows found in {promotion_config_uri}")
+
+    return promotions
+
+
+def get_active_promotion(
+    event: dict,
+    promotions: Dict[Tuple[str, str, str, str], dict],
+) -> Optional[dict]:
+    promotion_id = event.get("promotion_id")
+    if not promotion_id:
+        return None
+
+    key = (
+        event["campaign_id"],
+        promotion_id,
+        event["sku_id"],
+        event["warehouse_id"],
+    )
+    promotion = promotions.get(key)
+    if promotion is None:
+        return None
+
+    event_time = parse_timestamp(event["event_time"])
+    if promotion["start_time"] <= event_time <= promotion["end_time"]:
+        return promotion
+
+    return None
+
+
+def enforce_promotion_window(
+    event: dict,
+    promotions: Dict[Tuple[str, str, str, str], dict],
+) -> dict:
+    if not event.get("promotion_applied") or not event.get("promotion_id"):
+        return event
+
+    active_promotion = get_active_promotion(event, promotions)
+    if active_promotion:
+        event["unit_price"] = active_promotion["sale_price"]
+        return event
+
+    original_promotion_id = event.get("promotion_id")
+    key = (
+        event["campaign_id"],
+        original_promotion_id,
+        event["sku_id"],
+        event["warehouse_id"],
+    )
+    promotion = promotions.get(key)
+
+    event["promotion_id"] = None
+    event["promotion_applied"] = False
+    if promotion:
+        event["unit_price"] = promotion["normal_price"]
+
+    logger.info(
+        "Removed inactive promotion from event_id=%s promotion_id=%s sku_id=%s "
+        "warehouse_id=%s event_time=%s",
+        event.get("event_id"),
+        original_promotion_id,
+        event.get("sku_id"),
+        event.get("warehouse_id"),
+        event.get("event_time"),
+    )
+    return event
 
 
 def write_failed_event(event: dict, error_message: str) -> None:
@@ -220,11 +345,18 @@ def main():
         default=1.0
     )
 
+    parser.add_argument(
+        "--promotion-config-uri",
+        default=PROMOTION_CONFIG_URI,
+        help="S3 URI or local path for promotion_config.csv.",
+    )
+
     args = parser.parse_args()
 
     if not args.bootstrap_servers:
         raise ValueError("KAFKA_BOOTSTRAP_SERVERS or --bootstrap-servers is required")
 
+    promotion_config = load_promotion_config(args.promotion_config_uri)
     producer = create_kafka_producer(args.bootstrap_servers, args.auth_mode)
 
     logger.info(
@@ -256,6 +388,8 @@ def main():
                 )
 
                 for event_index, event in enumerate(events, start=1):
+                    event = enforce_promotion_window(event, promotion_config)
+
                     send_event(
                         producer=producer,
                         topic=args.topic,
