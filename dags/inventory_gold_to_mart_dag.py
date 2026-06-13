@@ -48,9 +48,11 @@ aws_region = load_runtime_config("inventory_aws_region", "us-east-1")
 def validate_params(**context) -> None:
     dag_run = context.get("dag_run")
     conf =  dag_run.conf if dag_run and dag_run.conf else {}
+    data_interval_start = context["data_interval_start"].in_timezone(TZ)
+    default_business_date = data_interval_start.to_date_string()
 
-    recon_date = conf.get("recon_date") or context["ds"]
-    summary_date = conf.get("summary_date") or context["ds"]
+    recon_date = conf.get("recon_date") or default_business_date
+    summary_date = conf.get("summary_date") or default_business_date
     campaign_id = conf.get("campaign_id") or DEFAULT_CAMPAIGN_ID
 
     if not recon_date:
@@ -73,6 +75,16 @@ def validate_params(**context) -> None:
     context["ti"].xcom_push(key="recon_date", value=recon_date)
     context["ti"].xcom_push(key="summary_date", value=summary_date)
     context["ti"].xcom_push(key="campaign_id", value=campaign_id)
+    logger.info(
+        "Resolved DAG params run_id=%s conf=%s recon_date=%s summary_date=%s "
+        "campaign_id=%s default_business_date=%s",
+        dag_run.run_id if dag_run else None,
+        conf,
+        recon_date,
+        summary_date,
+        campaign_id,
+        default_business_date,
+    )
 
 
 def wait_for_glue_job_idle(job_name: str, region_name: str, timeout_minutes: int = 30) -> None:
