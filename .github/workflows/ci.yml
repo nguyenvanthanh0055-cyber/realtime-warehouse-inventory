@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Validate and Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python syntax check
+        run: |
+          python -m py_compile \
+            dags/*.py \
+            aws/glue/*.py \
+            spark/*.py \
+            spark/common/*.py \
+            spark/sinks/*.py \
+            scripts/*.py \
+            producer/*.py
+
+      - name: Shell syntax check
+        run: |
+          bash -n scripts/*.sh
+
+      - name: Verify Redshift SQL files
+        run: |
+          test -f redshift/00_create_schemas.sql
+          test -f redshift/01_create_staging_tables.sql
+          test -f redshift/02_create_mart_tables.sql
+          test -f redshift/03_audit_tables.sql
+          test -f redshift/04_sp_load_daily_inventory_summary.sql
+          test -f redshift/05_sp_load_inventory_reconciliation.sql
+          test -f redshift/06_reporting_views.sql
+          test -f redshift/calls/01_call_sp_load_daily_inventory_summary.sql
+          test -f redshift/calls/02_call_sp_load_inventory_reconciliation.sql
+
+      - name: Package Glue streaming libraries
+        run: |
+          bash scripts/package_glue_streaming_job.sh
+          test -f dist/glue/inventory_streaming_libs.zip
+
+      - name: Upload CI package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: glue-streaming-libs
+          path: dist/glue/inventory_streaming_libs.zip

@@ -1,0 +1,52 @@
+name: Deploy AWS Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_bucket:
+        description: "S3 bucket for Glue/Redshift/MWAA artifacts"
+        required: true
+        default: "inventory-lake-fox"
+      aws_region:
+        description: "AWS region"
+        required: true
+        default: "us-east-1"
+      deploy_dag:
+        description: "Upload Airflow DAG to MWAA DAG prefix"
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  deploy:
+    name: Upload Artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Package Glue streaming libraries
+        run: |
+          bash scripts/package_glue_streaming_job.sh
+
+      - name: Upload project artifacts to S3
+        env:
+          AWS_REGION: ${{ inputs.aws_region }}
+          ARTIFACT_BUCKET: ${{ inputs.artifact_bucket }}
+          GLUE_SCRIPT_PREFIX: glue/scripts
+          GLUE_LIB_PREFIX: glue/libs
+          REDSHIFT_SQL_PREFIX: artifacts/redshift/sql
+          MWAA_DAGS_PREFIX: dags
+          DEPLOY_DAG: ${{ inputs.deploy_dag }}
+        run: |
+          bash scripts/deploy_aws_artifacts.sh

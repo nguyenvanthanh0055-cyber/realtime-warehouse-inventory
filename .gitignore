@@ -3,6 +3,8 @@ __pycache__/
 .venv/
 venv/
 .env
+docs
+config
 
 data/
 data/lake/

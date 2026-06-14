@@ -181,16 +181,12 @@ def read_streaming_state_history_from_s3(
 
     state_history_df = state_history_df.filter(col("business_date") <= recon_date)
 
-    order_columns = []
-    if "history_id" in state_history_df.columns:
-        order_columns.append(col("history_id").desc())
-
-    order_columns.extend([
+    order_columns = [
         col("processed_at").desc(),
         col("business_date").desc(),
         col("event_time").desc(),
         col("event_id").desc(),
-    ])
+    ]
 
     latest_state_window = (
         Window

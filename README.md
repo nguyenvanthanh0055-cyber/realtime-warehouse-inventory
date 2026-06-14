@@ -60,19 +60,15 @@ Local Kafka / Docker Kafka
         v
 Spark Structured Streaming
         |
-        +-- PostgreSQL local current-state tables
         +-- data/lake local Bronze/Silver folders
 ```
 
 Local-only pieces:
 
 - `docker-compose.yml`
-- `scripts/init_campaign.py`
-- `spark/sinks/postgres_current_state_sink.py`
-- `batch/daily_reconciliation_job.py`
+- `scripts/create_kafka_topic.sh`
 
 See:
 
 - `docs/cloud_main_path.md`
 - `docs/local_dev_test_path.md`
-
