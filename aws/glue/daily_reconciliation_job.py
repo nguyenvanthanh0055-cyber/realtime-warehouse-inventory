@@ -14,7 +14,6 @@ from pyspark.sql.functions import (
     row_number,
 )
 from pyspark.sql.window import Window
-from py4j.protocol import Py4JJavaError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -108,78 +107,23 @@ def read_streaming_state_history_from_s3(
     recon_date: str,
 ) -> DataFrame:
     state_history_root = f"{lake_root}/silver/current_inventory_state_history"
-    canonical_path = (
+    state_history_path = (
         f"{state_history_root}/business_date={recon_date}/campaign_id={campaign_id}"
     )
-    legacy_date_path = f"{state_history_root}/business_date={recon_date}"
 
     logger.info(
-        "Reading state history for recon_date=%s campaign_id=%s from canonical path: %s",
+        "Reading state history for recon_date=%s campaign_id=%s from path: %s",
         recon_date,
         campaign_id,
-        canonical_path,
+        state_history_path,
     )
 
-    state_history_dfs = []
-
-    try:
-        canonical_df = (
-            spark.read
-            .option("basePath", state_history_root)
-            .parquet(canonical_path)
-        )
-        state_history_dfs.append(canonical_df)
-    except Py4JJavaError as error:
-        message = str(error.java_exception)
-        if "Path does not exist" not in message:
-            raise
-
-        logger.warning(
-            "Canonical state history path does not exist: %s",
-            canonical_path,
-        )
-
-    legacy_direct_files_path = f"{legacy_date_path}/*.parquet"
-    logger.info(
-        "Checking legacy state history files for recon_date=%s campaign_id=%s path=%s",
-        recon_date,
-        campaign_id,
-        legacy_direct_files_path,
+    state_history_df = (
+        spark.read
+        .option("basePath", state_history_root)
+        .parquet(state_history_path)
+        .filter(col("business_date") <= recon_date)
     )
-
-    try:
-        legacy_df = (
-            spark.read
-            .parquet(legacy_direct_files_path)
-            .filter(col("campaign_id") == campaign_id)
-        )
-        if "business_date" not in legacy_df.columns:
-            legacy_df = legacy_df.withColumn("business_date", lit(recon_date))
-        state_history_dfs.append(legacy_df)
-    except Py4JJavaError as error:
-        message = str(error.java_exception)
-        if "Path does not exist" not in message:
-            raise
-
-        logger.warning(
-            "Legacy direct state history files do not exist: %s",
-            legacy_direct_files_path,
-        )
-
-    if not state_history_dfs:
-        raise FileNotFoundError(
-            f"No state history data found for recon_date={recon_date}, "
-            f"campaign_id={campaign_id}"
-        )
-
-    state_history_df = state_history_dfs[0]
-    for next_df in state_history_dfs[1:]:
-        state_history_df = state_history_df.unionByName(
-            next_df,
-            allowMissingColumns=True,
-        )
-
-    state_history_df = state_history_df.filter(col("business_date") <= recon_date)
 
     order_columns = [
         col("processed_at").desc(),
