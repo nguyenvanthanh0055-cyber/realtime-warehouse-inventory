@@ -29,18 +29,16 @@ DEFAULT_CAMPAIGN_ID = load_runtime_config(
     "inventory_default_campaign_id",
     "CAMPAIGN_FLASH_0609",
 )
-LAKE_ROOT = load_runtime_config("inventory_lake_root", "s3://inventory-lake-fox")
-sql_bucket = load_runtime_config("inventory_sql_bucket", "inventory-lake-fox")
-sql_prefix = load_runtime_config("inventory_sql_prefix", "artifacts/redshift/sql")
-redshift_wg = load_runtime_config("inventory_redshift_workgroup", "inventory-dev-wg")
+LAKE_ROOT = load_runtime_config("inventory_lake_root")
+sql_bucket = load_runtime_config("inventory_sql_bucket")
+sql_prefix = load_runtime_config("inventory_sql_prefix")
+redshift_wg = load_runtime_config("inventory_redshift_workgroup")
 redshift_db = load_runtime_config("inventory_redshift_database", "dev")
 redshift_iam_role = load_runtime_config(
-    "inventory_redshift_iam_role",
-    "arn:aws:iam::946445279560:role/service-role/AmazonRedshift-CommandsAccessRole-20260516T171518",
+    "inventory_redshift_iam_role"
 )
 redshift_secret_arn = load_runtime_config(
-    "inventory_redshift_secret_arn",
-    "arn:aws:secretsmanager:us-east-1:946445279560:secret:redshift_secret_admin-llXzBH",
+    "inventory_redshift_secret_arn"
 )
 aws_region = load_runtime_config("inventory_aws_region", "us-east-1")
 
