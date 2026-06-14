@@ -24,7 +24,7 @@ def build_sales_velocity_5m_df(df: DataFrame) -> DataFrame:
 
     return (
         sales_events_df
-        .withWatermark("business_timestamp", "10 minutes")
+        .withWatermark("business_timestamp", "7 minutes")
         .groupBy(
             window(col("business_timestamp"), "5 minutes"),
             col("campaign_id"),
