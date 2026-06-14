@@ -43,10 +43,10 @@ jobs:
         env:
           AWS_REGION: ${{ inputs.aws_region }}
           ARTIFACT_BUCKET: ${{ inputs.artifact_bucket }}
-          GLUE_SCRIPT_PREFIX: glue/scripts
-          GLUE_LIB_PREFIX: glue/libs
+          GLUE_SCRIPT_PREFIX: artifacts/glue/scripts
+          GLUE_LIB_PREFIX: artifacts/glue/libs
           REDSHIFT_SQL_PREFIX: artifacts/redshift/sql
-          MWAA_DAGS_PREFIX: dags
+          MWAA_DAGS_PREFIX: artifacts/dags
           DEPLOY_DAG: ${{ inputs.deploy_dag }}
         run: |
           bash scripts/deploy_aws_artifacts.sh
